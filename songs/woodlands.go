@@ -332,5 +332,6 @@ func Woodlands() synth.Song {
 		Loop:      true,
 		LoopStart: 2 * wlPass,
 		Meter:     synth.Meter{Beat: wlBeat},
+		Target:    -14,
 	}
 }

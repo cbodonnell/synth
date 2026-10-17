@@ -171,12 +171,13 @@ func PlayaSunrise() synth.Song {
 				{Kind: synth.LowCut, Freq: 30},
 				{Kind: synth.HighShelf, Freq: 11000, Gain: -1.5},
 			}},
-			synth.Compressor{Threshold: -14, Ratio: 2, Attack: 0.015, Release: 0.2, Makeup: 1},
+			synth.Compressor{Threshold: -14, Ratio: 2, Attack: 0.015, Release: 0.2, Makeup: -0.3},
 			synth.Limiter{},
 		},
 		Length:    float64(len(psForm.sections)) * psCycle,
 		Loop:      true,
 		LoopStart: 2 * psCycle,
 		Meter:     synth.Meter{Beat: psBeat, Bars: []int{3, 3, 3, 4}},
+		Target:    -14,
 	}
 }

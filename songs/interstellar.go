@@ -101,13 +101,14 @@ func Interstellar() synth.Song {
 				{Kind: synth.LowCut, Freq: 25},
 				{Kind: synth.HighShelf, Freq: 10000, Gain: -2},
 			}},
-			synth.Compressor{Threshold: -16, Ratio: 2, Attack: 0.03, Release: 0.3, Makeup: 1},
+			synth.Compressor{Threshold: -16, Ratio: 2, Attack: 0.03, Release: 0.3, Makeup: 5},
 			synth.Limiter{},
 		},
 		Length:    float64(len(isForm.sections)) * isCycle,
 		Loop:      true,
 		LoopStart: 2 * isCycle,
 		Meter:     synth.Meter{Beat: 3 * isStep, Bars: []int{2}},
+		Target:    -14,
 	}
 }
 

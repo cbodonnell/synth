@@ -256,12 +256,13 @@ func LavaLamp() synth.Song {
 				{Kind: synth.HighShelf, Freq: 10000, Gain: -1.5},
 			}},
 			synth.Drive{Amount: 0.6, Mix: 0.25},
-			synth.Compressor{Threshold: -14, Ratio: 2.5, Attack: 0.02, Release: 0.25},
+			synth.Compressor{Threshold: -14, Ratio: 2.5, Attack: 0.02, Release: 0.25, Makeup: 0.8},
 			synth.Limiter{},
 		},
 		Length:    20 * llBar,
 		Loop:      true,
 		LoopStart: 4 * llBar,
 		Meter:     synth.Meter{Beat: llBeat},
+		Target:    -14,
 	}
 }

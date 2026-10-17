@@ -179,5 +179,6 @@ func AmberHours() synth.Song {
 		Loop:      true,
 		LoopStart: 2 * ahCycle,
 		Meter:     synth.Meter{Beat: ahBeat, Bars: []int{3, 3, 3, 4}},
+		Target:    -14,
 	}
 }

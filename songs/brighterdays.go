@@ -235,5 +235,6 @@ func BrighterDays() synth.Song {
 		Loop:      true,
 		LoopStart: bdBreakdown,
 		Meter:     synth.Meter{Beat: bdBeat},
+		Target:    -14,
 	}
 }

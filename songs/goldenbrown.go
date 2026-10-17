@@ -115,6 +115,7 @@ func GoldenBrown() synth.Song {
 		Loop:      true,
 		LoopStart: 2 * gbCycle,
 		Meter:     synth.Meter{Beat: gbBeat, Bars: []int{3, 3, 3, 4}},
+		Target:    -14,
 	}
 }
 

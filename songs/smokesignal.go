@@ -210,12 +210,13 @@ func SmokeSignal() synth.Song {
 				{Kind: synth.LowCut, Freq: 25},
 				{Kind: synth.HighShelf, Freq: 9000, Gain: 1},
 			}},
-			synth.Compressor{Threshold: -12, Ratio: 2, Attack: 0.01, Release: 0.15},
+			synth.Compressor{Threshold: -12, Ratio: 2, Attack: 0.01, Release: 0.15, Makeup: -1.7},
 			synth.Limiter{Ceiling: -0.8},
 		},
 		Length:    ssEnd,
 		Loop:      true,
 		LoopStart: ssBuild,
 		Meter:     synth.Meter{Beat: ssBeat},
+		Target:    -14,
 	}
 }
