@@ -140,7 +140,8 @@ Ebiten's `InfiniteLoop` crossfades into the loop start to hide the codec's seam.
   builds back into the last chorus.
 - `interstellar.go`, the Interstellar main theme's organ intro: A minor in 6/8, an
   ostinato ticking against an E pedal while the chords move beneath it, the swell box
-  breathing open and shut again by the loop's seam.
+  breathing open and shut again by the loop's seam, a pedalled grand rolling the chords
+  and singing a tune an octave above.
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
   in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
   through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).

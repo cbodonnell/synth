@@ -126,6 +126,27 @@ func Bass() synth.Patch {
 	}
 }
 
+// GrandPiano is a concert grand played softly: three strings a key, struck near the
+// middle by a felt hammer so the tone is round, with a long bloom and a slow release
+// for notes the sustain pedal holds past their written length.
+func GrandPiano() synth.Patch {
+	hammer := synth.Envelope{Attack: 0.0005, Decay: 0.012, Release: 0.005}
+	return synth.Patch{
+		Name: "grand piano",
+		Oscs: []synth.Osc{
+			{Wave: synth.Pluck, String: synth.String{Decay: 9, Brightness: 0.55, Pick: 0.2}},
+			{Wave: synth.Pluck, Level: 0.8, Cents: 1.8, String: synth.String{Decay: 8, Brightness: 0.5, Pick: 0.22}},
+			{Wave: synth.Pluck, Level: 0.6, Cents: -1.4, String: synth.String{Decay: 10, Brightness: 0.45, Pick: 0.18}},
+			{Wave: synth.Sine, Level: 0.2, Env: &synth.Envelope{Attack: 0.002, Decay: 2.5, Release: 0.3}},
+			{Wave: synth.Noise, Level: 0.04, Env: &hammer},
+		},
+		Amp:      synth.Envelope{Attack: 0.001, Release: 0.6},
+		Filter:   synth.Filter{Cutoff: 2600, KeyTrack: 0.6, Velocity: 1.5},
+		Velocity: 0.75,
+		Gain:     0.16,
+	}
+}
+
 // EPiano is two-operator FM: a bright tine strike that mellows as the index falls.
 func EPiano() synth.Patch {
 	return synth.Patch{
