@@ -50,8 +50,11 @@ func (m *Mixer) StopMusic() {
 
 func (m *Mixer) Current() string { return m.current.ID }
 
-func (m *Mixer) Play(s synth.Song) {
-	if g := m.levels.Master * m.levels.Effects; g > 0 {
+func (m *Mixer) Play(s synth.Song) { m.PlayGain(s, 1) }
+
+// PlayGain trims one effect under the Effects level: a sound heard from across the map.
+func (m *Mixer) PlayGain(s synth.Song, gain float64) {
+	if g := m.levels.Master * m.levels.Effects * clampLevel(gain); g > 0 {
 		m.sink.Play(s, g)
 	}
 }

@@ -95,6 +95,9 @@ animation can keep time. Renders happen on goroutines (`Prepare` warms them), so
 
 - `goldenbrown.go`, the Golden Brown intro: harpsichord sound design and irregular metre
   (`Meter.Bars = {3, 3, 3, 4}`).
+- `amberhours.go`, "Amber Hours": an original in Golden Brown's spirit, a D minor
+  harpsichord waltz in `{3, 3, 3, 5}` with a recorder, bass, and a brushed kit. Its form
+  is a string of sections (`"AAAABBAA"`), each part writing its line pass by pass.
 - `lavalamp.go`, "Lava Lamp Sun": a full band (kit on a group bus, Höfner-style bass,
   double-tracked phased rhythm guitars, wah-fuzz lead with bends, Leslie organ, Juno
   arp). The reference for mixing; balance with `go run ./cmd/synth -id <id> -stems`,

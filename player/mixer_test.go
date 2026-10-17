@@ -93,3 +93,13 @@ func TestBeatFollowsTheLoopedPlayhead(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, synth.Position{Bar: 1, Beat: 2, Phase: 0.5}, pos, "11.5s played is 5.5s into the score")
 }
+
+func TestPlayGainSkipsSilentEffects(t *testing.T) {
+	r := &recorder{}
+	m := NewMixer(r)
+	m.PlayGain(song("a"), 0)
+	m.PlayGain(song("a"), -1)
+	assert.Zero(t, r.effects)
+	m.PlayGain(song("a"), 0.5)
+	assert.Equal(t, 1, r.effects)
+}

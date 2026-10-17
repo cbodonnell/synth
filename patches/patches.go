@@ -50,6 +50,26 @@ func OctaveSynth() synth.Patch {
 	}
 }
 
+// Recorder is a near-sine flute with a breath of noise, the chiff of each tongued note,
+// and vibrato that only arrives once a note is held.
+func Recorder() synth.Patch {
+	chiff := synth.Envelope{Attack: 0.002, Decay: 0.03, Release: 0.01}
+	return synth.Patch{
+		Name: "recorder",
+		Oscs: []synth.Osc{
+			{Wave: synth.Sine},
+			{Wave: synth.Triangle, Level: 0.25, Semi: 12},
+			{Wave: synth.Noise, Level: 0.03},
+			{Wave: synth.Noise, Level: 0.15, Env: &chiff},
+		},
+		Amp:      synth.Envelope{Attack: 0.03, Decay: 0.2, Sustain: 0.85, Release: 0.1},
+		Filter:   synth.Filter{Cutoff: 3500, KeyTrack: 0.5},
+		LFOs:     []synth.LFO{{Target: synth.Vibrato, Rate: 5, Depth: 14, Delay: 0.25}},
+		Velocity: 0.5,
+		Gain:     0.25,
+	}
+}
+
 // Bass is a picked electric bass: saw and sub through a filter that snaps shut.
 func Bass() synth.Patch {
 	return synth.Patch{

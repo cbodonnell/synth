@@ -7,7 +7,7 @@ import (
 )
 
 func Songs() []synth.Song {
-	return []synth.Song{GoldenBrown(), LavaLamp(), BrighterDays(), SmokeSignal()}
+	return []synth.Song{GoldenBrown(), AmberHours(), LavaLamp(), BrighterDays(), SmokeSignal()}
 }
 
 func Sounds() []synth.Song {
