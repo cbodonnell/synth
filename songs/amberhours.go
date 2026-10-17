@@ -86,8 +86,8 @@ func AmberHours() synth.Song {
 
 	// The swell box opens across B and stays open for the return of the hook.
 	swell := synth.AutoFilter{Points: []synth.Point{
-		{At: 4 * ahCycle, Cutoff: 500},
-		{At: 6 * ahCycle, Cutoff: 7000},
+		{At: 4 * ahCycle, Value: 500},
+		{At: 6 * ahCycle, Value: 7000},
 	}}
 
 	tick := synth.Phrase{Step: ahStep}.Notes(ahForm.score(func(int, byte) string {

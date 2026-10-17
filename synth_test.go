@@ -257,7 +257,51 @@ func TestValidate(t *testing.T) {
 	s.Parts[0].Patch.Oscs[0].FM = FM{Ratio: 2, Index: 1}
 	assert.Error(t, Validate(s), "FM on a saw")
 
+	s = busySong()
+	s.Master = append(s.Master, Fader{Points: []Point{{At: 2, Value: 0}, {At: 1, Value: -6}}})
+	assert.Error(t, Validate(s), "automation out of order")
+
 	assert.Error(t, Validate(Song{Loop: true}))
+}
+
+func TestFollowPassesThroughEveryPoint(t *testing.T) {
+	p := []Point{{At: 0.5, Value: 200}, {At: 1, Value: 4000}, {At: 1, Value: 100}, {At: 3, Value: 1600}}
+	assert.Equal(t, 200.0, follow(p, 0, exponential), "holds before the first point")
+	assert.Equal(t, 1600.0, follow(p, 9, exponential), "holds after the last point")
+	for _, pt := range []Point{p[0], p[3]} {
+		assert.InDelta(t, pt.Value, follow(p, pt.At, exponential), 1e-9)
+	}
+	assert.InDelta(t, 400, follow(p, 2, exponential), 1e-9, "exponential between points")
+}
+
+func TestFaderFromSilenceRisesMonotonically(t *testing.T) {
+	buf := NewStereo(samples(1.2))
+	for i := range buf.L {
+		buf.L[i], buf.R[i] = 1, 1
+	}
+	Fader{Points: []Point{{At: 0.1, Value: math.Inf(-1)}, {At: 1.1, Value: 0}}}.Process(buf)
+	assert.Zero(t, buf.L[0])
+	for i := 1; i < buf.Len(); i++ {
+		require.GreaterOrEqualf(t, buf.L[i], buf.L[i-1], "sample %d", i)
+	}
+	assert.Equal(t, float32(1), buf.L[buf.Len()-1])
+}
+
+func TestLoudness(t *testing.T) {
+	// EBU Tech 3341's first case: a 1kHz sine at -23dBFS in both channels reads -23 LUFS.
+	buf := NewStereo(samples(20))
+	a := dbToGain(-23)
+	for i := range buf.L {
+		x := float32(a * math.Sin(2*math.Pi*1000*float64(i)/SampleRate))
+		buf.L[i], buf.R[i] = x, x
+	}
+	integrated, short := Loudness(buf)
+	assert.InDelta(t, -23, integrated, 0.1)
+	assert.InDelta(t, -23, short, 0.1)
+
+	integrated, short = Loudness(NewStereo(samples(5)))
+	assert.True(t, math.IsInf(integrated, -1))
+	assert.True(t, math.IsInf(short, -1))
 }
 
 func TestEncodings(t *testing.T) {

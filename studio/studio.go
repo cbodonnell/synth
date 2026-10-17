@@ -139,8 +139,9 @@ func printStems(s synth.Song) {
 		if active > 0 {
 			rms = 10 * math.Log10(sum/float64(active))
 		}
-		fmt.Printf("%-18s peak %5.2f  rms %6.1fdB  sounding %3.0f%%\n",
-			p.Name, buf.Peak(), rms, 100*float64(active*window)/float64(max(buf.Len(), 1)))
+		lufs, _ := synth.Loudness(buf)
+		fmt.Printf("%-18s peak %5.2f  rms %6.1fdB  %6.1f LUFS  sounding %3.0f%%\n",
+			p.Name, buf.Peak(), rms, lufs, 100*float64(active*window)/float64(max(buf.Len(), 1)))
 	}
 }
 
@@ -163,7 +164,9 @@ func fail(format string, args ...any) {
 }
 
 func printEnvelope(id string, s synth.Stereo, took time.Duration) {
-	fmt.Printf("%s   %.2fs  peak %.2f  rendered in %v\n", id, s.Seconds(), s.Peak(), took.Round(time.Millisecond))
+	integrated, short := synth.Loudness(s)
+	fmt.Printf("%s   %.2fs  peak %.2f  %.1f LUFS (short-term max %.1f)  rendered in %v\n",
+		id, s.Seconds(), s.Peak(), integrated, short, took.Round(time.Millisecond))
 	if s.Len() == 0 {
 		return
 	}

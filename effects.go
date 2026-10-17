@@ -531,53 +531,6 @@ func (sc Sidechain) Process(s Stereo) {
 	}
 }
 
-// AutoFilter is a filter whose cutoff follows a line through Points over song time,
-// moving exponentially between them: the slow sweep that opens a build.
-type AutoFilter struct {
-	Mode      FilterMode
-	Resonance float64
-	Points    []Point // ascending in At
-}
-
-type Point struct {
-	At     float64 // seconds into the song
-	Cutoff float64 // Hz
-}
-
-func (a AutoFilter) Tail() float64 { return 0.05 }
-
-func (a AutoFilter) cutoff(t float64) float64 {
-	p := a.Points
-	switch {
-	case len(p) == 0:
-		return 0.45 * SampleRate
-	case t <= p[0].At:
-		return p[0].Cutoff
-	case t >= p[len(p)-1].At:
-		return p[len(p)-1].Cutoff
-	}
-	k := 1
-	for p[k].At < t {
-		k++
-	}
-	x := (t - p[k-1].At) / math.Max(p[k].At-p[k-1].At, 1e-9)
-	lo, hi := math.Max(p[k-1].Cutoff, 1), math.Max(p[k].Cutoff, 1)
-	return lo * math.Pow(hi/lo, x)
-}
-
-func (a AutoFilter) Process(s Stereo) {
-	var l, r svf
-	for i := range s.L {
-		if i%filterEvery == 0 {
-			c := a.cutoff(float64(i) / SampleRate)
-			l.set(c, a.Resonance)
-			r.set(c, a.Resonance)
-		}
-		s.L[i] = float32(l.process(float64(s.L[i]), a.Mode))
-		s.R[i] = float32(r.process(float64(s.R[i]), a.Mode))
-	}
-}
-
 // TapeStop spins the audio down to a halt, as if the reels lost power, then holds
 // silence until Until: the breath before a drop. Playback slows linearly over Length,
 // so pitch falls with it.

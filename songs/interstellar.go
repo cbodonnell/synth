@@ -74,10 +74,10 @@ func Interstellar() synth.Song {
 	// Opens across the intro, then breathes once per two passes of the loop, shut again
 	// at the seam so the body joins its own start.
 	swell := synth.AutoFilter{Points: []synth.Point{
-		{At: 0, Cutoff: 700},
-		{At: 2 * isCycle, Cutoff: 1400},
-		{At: 4 * isCycle, Cutoff: 8000},
-		{At: 6 * isCycle, Cutoff: 1400},
+		{At: 0, Value: 700},
+		{At: 2 * isCycle, Value: 1400},
+		{At: 4 * isCycle, Value: 8000},
+		{At: 6 * isCycle, Value: 1400},
 	}}
 
 	nave := func(l float64) synth.Send { return synth.Send{Bus: "nave", Level: l} }

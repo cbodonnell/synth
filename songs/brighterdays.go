@@ -181,7 +181,7 @@ func BrighterDays() synth.Song {
 			{
 				Name: "pluck", Patch: patches.HousePluck(), Notes: pluckNotes, Pan: 0.15, Gain: 3,
 				Inserts: []synth.Effect{synth.AutoFilter{Points: []synth.Point{
-					{At: bdBreakdown, Cutoff: 1400}, {At: bdBuild, Cutoff: 6000},
+					{At: bdBreakdown, Value: 1400}, {At: bdBuild, Value: 6000},
 				}}},
 				Sends: []synth.Send{delay(0.35), reverb(0.3)},
 			},
@@ -194,10 +194,10 @@ func BrighterDays() synth.Song {
 				Name: "lead", Patch: patches.SuperSaw(), Notes: leadNotes, Gain: 2.8,
 				Inserts: []synth.Effect{
 					synth.AutoFilter{Resonance: 0.2, Points: []synth.Point{
-						{At: bdBuild, Cutoff: 180},
-						{At: bdDrop - bdBar/2, Cutoff: 2200},
-						{At: bdDrop - 0.01, Cutoff: 2200},
-						{At: bdDrop, Cutoff: 20000},
+						{At: bdBuild, Value: 180},
+						{At: bdDrop - bdBar/2, Value: 2200},
+						{At: bdDrop - 0.01, Value: 2200},
+						{At: bdDrop, Value: 20000},
 					}},
 					pump(0.5, 0.2),
 				},

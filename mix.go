@@ -51,6 +51,11 @@ type Song struct {
 	LoopStart float64
 
 	Meter Meter
+
+	// Integrated loudness in LUFS the song should measure within 1 LU of, rendered as
+	// studio plays it: the intro, then the body once more. 0 sets none. Games aim near
+	// -16 for music.
+	Target float64
 }
 
 func gainOr1(g float64) float32 {

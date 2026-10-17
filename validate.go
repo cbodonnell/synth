@@ -49,6 +49,20 @@ func Validate(s Song) error {
 			}
 		}
 	}
+	chains := map[string][]Effect{"master": s.Master}
+	for _, p := range s.Parts {
+		chains[fmt.Sprintf("part %q", p.Name)] = p.Inserts
+	}
+	for _, b := range s.Buses {
+		chains[fmt.Sprintf("bus %q", b.Name)] = b.Effects
+	}
+	for name, fx := range chains {
+		for i, e := range fx {
+			if a, ok := e.(automated); ok && !pointsInOrder(a.points()) {
+				errs = append(errs, fmt.Errorf("%s effect %d: Points out of order", name, i))
+			}
+		}
+	}
 	return errors.Join(errs...)
 }
 

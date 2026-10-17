@@ -29,7 +29,7 @@ make list                          # songs and sounds
 make play ID=goldenbrown           # render to a wav, print the envelope, play it (afplay)
 make play ID=kick DUMP=1           # write the wav only
 make score ID=goldenbrown          # piano roll, one column per half beat
-go run ./cmd/synth -id lavalamp -stems   # each part's peak and level, for mixing
+go run ./cmd/synth -id lavalamp -stems   # each part's peak, level, and LUFS, for mixing
 go run ./cmd/synth -bake <dir>     # bake everything to Ogg Vorbis (needs oggenc)
 make demo                          # Ebiten window: Golden Brown with a beat-synced display
 ```
@@ -59,6 +59,12 @@ LFOs, pitch sweep, drive) → `Part` (notes, inserts, sends, pan) → `Bus` → 
 and start
 from silence on every call, so an effect value is data, not a stateful object. Each
 reports its `Tail`, which sizes the render.
+
+Automation is effects too: `AutoFilter` (Hz), `Fader` (dB), and `Panner` follow `Point`s
+through song time, each interpolating in its own domain through `follow`. Being
+song-time effects inside a render, they loop seamlessly whatever their values at the seam.
+`Loudness` is BS.1770 (integrated and short-term max, LUFS); studio prints it per song
+and per stem, and `Song.Target` makes the songs test hold a song within 1 LU of it.
 
 Oscillators are band-limited (PolyBLEP) saw and pulse, triangle, sine with two-operator
 FM, seeded white noise, and `Pluck`, a Karplus-Strong string tuned with an allpass for the

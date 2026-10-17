@@ -88,8 +88,8 @@ func PlayaSunrise() synth.Song {
 
 	// The swell opens across B and stays open for the return of the hook.
 	swell := synth.AutoFilter{Points: []synth.Point{
-		{At: 4 * psCycle, Cutoff: 500},
-		{At: 6 * psCycle, Cutoff: 6000},
+		{At: 4 * psCycle, Value: 500},
+		{At: 6 * psCycle, Value: 6000},
 	}}
 
 	kit := swung(1, 0.004, 17)
