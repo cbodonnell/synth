@@ -52,10 +52,35 @@ type Song struct {
 
 	Meter Meter
 
+	// For a sound effect: how plays differ, how many may sound at once (0 is no limit;
+	// past it the oldest play of this sound gives way), and which sounds the player keeps
+	// when too many play at once (higher survives; ties go to the newest).
+	Vary     Variation
+	Voices   int
+	Priority int
+
 	// Integrated loudness in LUFS the song should measure within 1 LU of, rendered as
 	// studio plays it: the intro, then the body once more. 0 sets none. Games aim near
 	// -16 for music.
 	Target float64
+
+	take int
+}
+
+// Variation hides a sound's repetition. Pitch and Gain move each play at random within
+// ±their range; Takes are renders whose noise is seeded apart, played in turn so the
+// texture changes too. All of it happens in the player, so Render stays pure.
+type Variation struct {
+	Pitch float64 // semitones
+	Gain  float64 // dB
+	Takes int     // 0 and 1 mean one
+}
+
+// Take is take n of a sound with Vary.Takes: the same song, its noise seeded apart.
+// Take 0 is the song itself.
+func Take(s Song, n int) Song {
+	s.take = n
+	return s
 }
 
 func gainOr1(g float64) float32 {
@@ -103,7 +128,7 @@ func Render(s Song) Stereo {
 	return out
 }
 
-// Looped is a looping song split the way Ebiten's InfiniteLoopWithIntro plays it.
+// Looped is a looping song split the way the player plays it: Intro once, then Body forever.
 type Looped struct {
 	// Plays once: everything before LoopStart and then the first pass through the
 	// loop, which starts from silence rather than from the loop's own tail.
@@ -158,7 +183,7 @@ func mixdown(s Song, parts []Part, n int) Stereo {
 	rendered := make([]Stereo, len(parts))
 	var wg sync.WaitGroup
 	for i, p := range parts {
-		wg.Go(func() { rendered[i] = renderPart(p, n) })
+		wg.Go(func() { rendered[i] = renderPart(p, s.take, n) })
 	}
 	wg.Wait()
 
@@ -193,10 +218,13 @@ func mixdown(s Song, parts []Part, n int) Stereo {
 	return master
 }
 
-func renderPart(p Part, n int) Stereo {
+func renderPart(p Part, take, n int) Stereo {
 	h := fnv.New64a()
 	h.Write([]byte(p.Name))
 	seed := h.Sum64()
+	if take > 0 {
+		seed = mixSeed(seed, uint64(take))
+	}
 
 	// Notes render concurrently into buffers of their own and are summed in order,
 	// so the result is identical however the work was scheduled.

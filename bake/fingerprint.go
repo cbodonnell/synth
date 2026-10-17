@@ -12,7 +12,7 @@ import (
 )
 
 // format changes whenever a bake's files change shape, so every song is baked again.
-const format = 2
+const format = 3
 
 // Fingerprint hashes everything a song renders from, synth.Revision for how it renders,
 // and the bake's own format. It walks the value rather than printing it, since %v would hash pointers'

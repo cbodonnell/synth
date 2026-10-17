@@ -4,8 +4,11 @@ package player
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/fs"
+	"math"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -34,17 +37,19 @@ func (Silent) StopMusic()                           {}
 func (Silent) SetMusicGain(float64)                 {}
 func (Silent) MusicPosition() (time.Duration, bool) { return 0, false }
 
-// Past the cap the oldest effect is dropped rather than queued: a queued effect would arrive late.
+// Past the cap the lowest priority gives way rather than queueing: a queued effect would arrive late.
 const maxEffects = 16
+
+// The effects stream runs continuously, so a new effect waits behind whatever is
+// buffered. Ebiten's default half second would be heard; this is short but safe.
+const effectsBuffer = 40 * time.Millisecond
 
 type rendered struct {
 	done        chan struct{}
-	pcm         []byte
-	ogg         []byte // baked music, decoded as it plays instead of held as pcm
-	intro, body int64  // bytes; body 0 means a one-shot
+	pcm         []float32 // interleaved stereo
+	ogg         []byte    // baked music, decoded as it plays instead of held as pcm
+	intro, body int       // frames; body 0 means a one-shot
 }
-
-const bytesPerSample = 8
 
 type Option func(*Player)
 
@@ -59,16 +64,20 @@ func Baked(fsys fs.FS) Option {
 }
 
 // Player is the Ebiten-backed Sink. Exactly one per process: Ebiten panics on a second
-// audio context.
+// audio context. Music and effects each play through one stream, which mixes their
+// voices itself.
 type Player struct {
-	ctx *ebaudio.Context
+	ctx            *ebaudio.Context
+	music, effects *stream
+	musicOut       *ebaudio.Player
 
 	mu      sync.Mutex
 	cache   map[string]*rendered
-	music   *ebaudio.Player
+	current *voice
 	gain    float64
 	gen     int // bumped on every music change, so a render that lands late is dropped
-	effects []*ebaudio.Player
+	rng     *rand.Rand
+	last    map[string]int // the take each sound played last
 
 	baked    fs.FS
 	manifest bake.Manifest
@@ -76,82 +85,125 @@ type Player struct {
 
 func New(opts ...Option) *Player {
 	p := &Player{
-		ctx:   ebaudio.NewContext(synth.SampleRate),
-		cache: make(map[string]*rendered),
+		ctx:     ebaudio.NewContext(synth.SampleRate),
+		music:   newStream(0, 0),
+		effects: newStream(1, maxEffects),
+		cache:   make(map[string]*rendered),
+		rng:     rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		last:    make(map[string]int),
 	}
 	for _, o := range opts {
 		o(p)
 	}
+	var err error
+	if p.musicOut, err = p.ctx.NewPlayerF32(p.music); err != nil {
+		panic(err)
+	}
+	effectsOut, err := p.ctx.NewPlayerF32(p.effects)
+	if err != nil {
+		panic(err)
+	}
+	effectsOut.SetBufferSize(effectsBuffer)
+	effectsOut.Play()
 	return p
 }
 
-// Prepare renders songs in the background, so the first PlayMusic doesn't wait on them.
+// Prepare renders songs, and every take of a sound, in the background, so the first
+// play doesn't wait on them.
 func (p *Player) Prepare(songs ...synth.Song) {
 	for _, s := range songs {
-		p.render(s)
+		for take := range takes(s) {
+			p.render(s, take)
+		}
 	}
 }
 
-func (p *Player) render(s synth.Song) *rendered {
+func takes(s synth.Song) int { return max(s.Vary.Takes, 1) }
+
+func (p *Player) render(s synth.Song, take int) *rendered {
+	key := s.ID
+	if take > 0 {
+		key = fmt.Sprintf("%s#%d", s.ID, take)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if r, ok := p.cache[s.ID]; ok {
+	if r, ok := p.cache[key]; ok {
 		return r
 	}
 	r := &rendered{done: make(chan struct{})}
-	p.cache[s.ID] = r
+	p.cache[key] = r
 	e, baked := p.manifest.Fresh(s)
 	go func() {
 		defer close(r.done)
-		if baked && p.load(r, s, e) == nil {
+		if baked && take < len(e.Files) && p.load(r, s, e, take) == nil {
 			return
 		}
+		s := synth.Take(s, take)
 		if !s.Loop {
-			r.pcm = synth.PCM(synth.Render(s))
+			r.pcm = interleave(synth.Render(s))
 			return
 		}
 		l := synth.RenderLoop(s)
-		r.pcm = synth.PCM(synth.Concat(l.Intro, l.Body))
-		r.intro = int64(len(r.pcm) - l.Body.Len()*bytesPerSample)
-		r.body = int64(l.Body.Len() * bytesPerSample)
+		r.pcm = interleave(synth.Concat(l.Intro, l.Body))
+		r.intro, r.body = l.Intro.Len(), l.Body.Len()
 	}()
 	return r
 }
 
-func (p *Player) load(r *rendered, s synth.Song, e bake.Entry) error {
-	ogg, err := fs.ReadFile(p.baked, e.File)
+func (p *Player) load(r *rendered, s synth.Song, e bake.Entry, take int) error {
+	ogg, err := fs.ReadFile(p.baked, e.Files[take])
 	if err != nil {
 		return err
 	}
 	if s.Loop {
 		r.ogg = ogg
-		r.intro = int64(e.Intro * bytesPerSample)
-		r.body = int64(e.Body * bytesPerSample)
+		r.intro, r.body = e.Intro, e.Body
 		return nil
 	}
 	d, err := vorbis.DecodeF32(bytes.NewReader(ogg))
 	if err != nil {
 		return err
 	}
-	r.pcm, err = io.ReadAll(d)
-	return err
+	b, err := io.ReadAll(d)
+	if err != nil {
+		return err
+	}
+	r.pcm = make([]float32, len(b)/4)
+	floats(r.pcm, b)
+	return nil
 }
 
-// stream is the music's source: a fresh decoder over a baked file, or the rendered pcm.
-func (r *rendered) stream() (io.ReadSeeker, error) {
-	if r.ogg == nil {
-		return bytes.NewReader(r.pcm), nil
+func interleave(s synth.Stereo) []float32 {
+	out := make([]float32, s.Len()*2)
+	for i := range s.L {
+		out[i*2], out[i*2+1] = s.L[i], s.R[i]
 	}
-	return vorbis.DecodeF32(bytes.NewReader(r.ogg))
+	return out
+}
+
+// source is a fresh read of the audio: a decoder over a baked file, or the rendered pcm.
+func (r *rendered) source() (source, error) {
+	var src seekable = &memory{pcm: r.pcm}
+	if r.ogg != nil {
+		d, err := vorbis.DecodeF32(bytes.NewReader(r.ogg))
+		if err != nil {
+			return nil, err
+		}
+		src = &decoded{rs: d}
+	}
+	if r.body == 0 {
+		return src, nil
+	}
+	return &looped{src: src, start: r.intro, end: r.intro + r.body}, nil
 }
 
 // PlayMusic returns at once; playback starts when the render is ready.
 func (p *Player) PlayMusic(s synth.Song, gain float64) {
 	p.StopMusic()
-	r := p.render(s)
+	r := p.render(s, 0)
+	p.SetMusicGain(gain)
 
 	p.mu.Lock()
-	p.gain = gain
 	gen := p.gen
 	p.mu.Unlock()
 
@@ -160,43 +212,34 @@ func (p *Player) PlayMusic(s synth.Song, gain float64) {
 		if len(r.pcm) == 0 && r.ogg == nil {
 			return
 		}
+		src, err := r.source()
+		if err != nil {
+			return
+		}
 
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if gen != p.gen {
 			return
 		}
-
-		src, err := r.stream()
-		if err != nil {
-			return
-		}
-		if r.body > 0 {
-			src = ebaudio.NewInfiniteLoopWithIntroF32(src, r.intro, r.body)
-		}
-		pl, err := p.ctx.NewPlayerF32(src)
-		if err != nil {
-			return
-		}
-		pl.SetVolume(p.gain)
-		p.music = pl
+		p.current = newVoice(s.ID, src, 1, 1)
+		p.music.play(p.current, 0)
 		if p.gain > 0 {
-			pl.Play()
+			p.musicOut.Play()
 		}
 	}()
 }
 
-// The render stays cached; only the Ebiten player is released.
+// The render stays cached; the music fades out over a few milliseconds.
 func (p *Player) StopMusic() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.gen++
-	if p.music == nil {
+	if p.current == nil {
 		return
 	}
-	p.music.Pause()
-	p.music.Close()
-	p.music = nil
+	p.music.stop(p.current)
+	p.current = nil
 }
 
 // Pauses outright at 0 so a muted game isn't streaming a loop nobody can hear.
@@ -204,53 +247,65 @@ func (p *Player) SetMusicGain(gain float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.gain = gain
-	if p.music == nil {
-		return
-	}
-	p.music.SetVolume(gain)
+	p.music.setGain(gain)
 	switch {
-	case gain <= 0 && p.music.IsPlaying():
-		p.music.Pause()
-	case gain > 0 && !p.music.IsPlaying():
-		p.music.Play()
+	case gain <= 0:
+		p.musicOut.Pause()
+	case p.current != nil:
+		p.musicOut.Play()
 	}
 }
 
 func (p *Player) MusicPosition() (time.Duration, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.music == nil || !p.music.IsPlaying() {
+	if p.current == nil || !p.musicOut.IsPlaying() {
 		return 0, false
 	}
-	return p.music.Position(), true
+	start, ok := p.music.started(p.current)
+	if !ok {
+		return 0, false
+	}
+	pos := p.musicOut.Position() - time.Duration(start)*time.Second/synth.SampleRate
+	return pos, pos >= 0
 }
 
 // Play renders an uncached effect on the spot. Effects are short, but Prepare them anyway
 // if one must land on the frame it's triggered.
 func (p *Player) Play(s synth.Song, gain float64) {
-	r := p.render(s)
+	p.mu.Lock()
+	take, rate, g := vary(s.Vary, p.rng, p.lastTake(s.ID))
+	p.last[s.ID] = take
+	p.mu.Unlock()
+
+	r := p.render(s, take)
 	<-r.done
 	if len(r.pcm) == 0 {
 		return
 	}
-	pl := p.ctx.NewPlayerF32FromBytes(r.pcm)
-	pl.SetVolume(gain)
-	pl.Play()
+	v := newVoice(s.ID, &memory{pcm: r.pcm}, rate, gain*g)
+	v.priority = s.Priority
+	p.effects.play(v, s.Voices)
+}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	live := p.effects[:0]
-	for _, e := range p.effects {
-		if e.IsPlaying() {
-			live = append(live, e)
-		} else {
-			e.Close()
+func (p *Player) lastTake(id string) int {
+	if t, ok := p.last[id]; ok {
+		return t
+	}
+	return -1
+}
+
+// vary picks a play: a take other than the last, and a playback rate and gain within
+// the variation's range. With no variation it's the song as rendered.
+func vary(v synth.Variation, rng *rand.Rand, last int) (take int, rate, gain float64) {
+	if n := max(v.Takes, 1); n > 1 {
+		if last < 0 || last >= n {
+			take = rng.IntN(n)
+		} else if take = rng.IntN(n - 1); take >= last {
+			take++
 		}
 	}
-	live = append(live, pl)
-	for len(live) > maxEffects {
-		live[0].Close()
-		live = live[1:]
-	}
-	p.effects = live
+	rate = math.Exp2(v.Pitch * (2*rng.Float64() - 1) / 12)
+	gain = math.Pow(10, v.Gain*(2*rng.Float64()-1)/20)
+	return take, rate, gain
 }

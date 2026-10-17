@@ -115,7 +115,7 @@ func TestBakedLoopCarriesOnIntoItsStart(t *testing.T) {
 	require.NoError(t, err)
 	e := m["loop"]
 
-	f, err := os.ReadFile(filepath.Join(dir, e.File))
+	f, err := os.ReadFile(filepath.Join(dir, e.Files[0]))
 	require.NoError(t, err)
 	d, err := vorbis.DecodeF32(bytes.NewReader(f))
 	require.NoError(t, err)
@@ -128,4 +128,24 @@ func TestBakedLoopCarriesOnIntoItsStart(t *testing.T) {
 		worst = max(worst, math.Abs(float64(at(2*(e.Intro+e.Body)+k)-at(2*e.Intro+k))))
 	}
 	assert.Less(t, worst, 0.02, "past the end, the file is the loop's start again")
+}
+
+func TestBakeWritesEveryTake(t *testing.T) {
+	if _, err := exec.LookPath("oggenc"); err != nil {
+		t.Skip("oggenc not installed")
+	}
+	dir := t.TempDir()
+	shot := tone("shot", false)
+	shot.Vary.Takes = 3
+	require.NoError(t, Bake(dir, shot))
+	m, err := Load(os.DirFS(dir))
+	require.NoError(t, err)
+	require.Len(t, m["shot"].Files, 3)
+	for _, f := range m["shot"].Files {
+		assert.FileExists(t, filepath.Join(dir, f))
+	}
+
+	shot.Vary.Takes = 1
+	require.NoError(t, Bake(dir, shot))
+	assert.NoFileExists(t, filepath.Join(dir, "shot.2.ogg"), "a take no longer wanted is removed")
 }

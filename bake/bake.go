@@ -24,15 +24,15 @@ import (
 
 const ManifestFile = "bake.json"
 
-// Past a loop's end the file carries the start of the body again: Ebiten's InfiniteLoop
-// crossfades its first 256 samples into the loop start, which hides the codec's seam.
+// Past a loop's end the file carries the start of the body again: the player blends its
+// first 256 samples into the loop start, which hides the codec's seam.
 const overlap = 2048
 
 const quality = "6"
 
 type Entry struct {
-	File        string `json:"file"`
-	Fingerprint string `json:"fingerprint"`
+	Files       []string `json:"files"` // one per take of a sound with Vary.Takes
+	Fingerprint string   `json:"fingerprint"`
 	// Samples played once before the body, and the body's length; Body 0 is a one-shot.
 	// Intro runs past the song's LoopStart by however long the first pass takes to settle
 	// into the loop, so the body in the file starts that far into the song's loop.
@@ -81,11 +81,9 @@ func Bake(dir string, songs ...synth.Song) error {
 		if err := synth.Validate(s); err != nil {
 			return fmt.Errorf("bake: %s: %w", s.ID, err)
 		}
-		if e, ok := old.Fresh(s); ok {
-			if _, err := os.Stat(filepath.Join(dir, e.File)); err == nil {
-				m[s.ID] = e
-				continue
-			}
+		if e, ok := old.Fresh(s); ok && present(os.DirFS(dir), e) {
+			m[s.ID] = e
+			continue
 		}
 		e, err := bake(dir, s)
 		if err != nil {
@@ -93,9 +91,17 @@ func Bake(dir string, songs ...synth.Song) error {
 		}
 		m[s.ID] = e
 	}
-	for id, e := range old {
-		if _, ok := m[id]; !ok {
-			os.Remove(filepath.Join(dir, e.File))
+	kept := map[string]bool{}
+	for _, e := range m {
+		for _, f := range e.Files {
+			kept[f] = true
+		}
+	}
+	for _, e := range old {
+		for _, f := range e.Files {
+			if !kept[f] {
+				os.Remove(filepath.Join(dir, f))
+			}
 		}
 	}
 	b, err := json.MarshalIndent(m, "", "\t")
@@ -106,8 +112,7 @@ func Bake(dir string, songs ...synth.Song) error {
 }
 
 func bake(dir string, s synth.Song) (Entry, error) {
-	e := Entry{File: s.ID + ".ogg", Fingerprint: Fingerprint(s)}
-	var buf synth.Stereo
+	e := Entry{Fingerprint: Fingerprint(s)}
 	if s.Loop {
 		l := synth.RenderLoop(s)
 		start := l.Intro.Len() - l.Body.Len()
@@ -119,28 +124,41 @@ func bake(dir string, s synth.Song) (Entry, error) {
 		t := settle(first, l.Body)
 		body := synth.Concat(slice(l.Body, t, l.Body.Len()), slice(l.Body, 0, t))
 		e.Intro, e.Body = start+t, body.Len()
-		buf = synth.Concat(slice(l.Intro, 0, start+t), body, slice(body, 0, min(overlap, body.Len())))
-	} else {
-		buf = synth.Render(s)
+		buf := synth.Concat(slice(l.Intro, 0, start+t), body, slice(body, 0, min(overlap, body.Len())))
+		e.Files = []string{s.ID + ".ogg"}
+		return e, encode(filepath.Join(dir, e.Files[0]), buf)
 	}
+	for take := range max(s.Vary.Takes, 1) {
+		file := s.ID + ".ogg"
+		if take > 0 {
+			file = fmt.Sprintf("%s.%d.ogg", s.ID, take)
+		}
+		e.Files = append(e.Files, file)
+		if err := encode(filepath.Join(dir, file), synth.Render(synth.Take(s, take))); err != nil {
+			return e, err
+		}
+	}
+	return e, nil
+}
 
+func encode(path string, buf synth.Stereo) error {
 	wav, err := os.CreateTemp("", "bake-*.wav")
 	if err != nil {
-		return e, err
+		return err
 	}
 	defer os.Remove(wav.Name())
 	if _, err := wav.Write(synth.WAV(buf)); err != nil {
 		wav.Close()
-		return e, err
+		return err
 	}
 	if err := wav.Close(); err != nil {
-		return e, err
+		return err
 	}
-	out, err := exec.Command("oggenc", "-Q", "-q", quality, "-o", filepath.Join(dir, e.File), wav.Name()).CombinedOutput()
+	out, err := exec.Command("oggenc", "-Q", "-q", quality, "-o", path, wav.Name()).CombinedOutput()
 	if err != nil {
-		return e, fmt.Errorf("oggenc (brew install vorbis-tools): %v: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("oggenc (brew install vorbis-tools): %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	return e, nil
+	return nil
 }
 
 func slice(s synth.Stereo, from, to int) synth.Stereo {
@@ -171,12 +189,7 @@ func Stale(fsys fs.FS, songs ...synth.Song) ([]string, error) {
 	seen := map[string]bool{}
 	for _, s := range songs {
 		seen[s.ID] = true
-		e, ok := m.Fresh(s)
-		if ok {
-			_, err := fs.Stat(fsys, e.File)
-			ok = err == nil
-		}
-		if !ok {
+		if e, ok := m.Fresh(s); !ok || !present(fsys, e) {
 			stale = append(stale, s.ID)
 		}
 	}
@@ -187,4 +200,13 @@ func Stale(fsys fs.FS, songs ...synth.Song) ([]string, error) {
 	}
 	slices.Sort(stale)
 	return stale, nil
+}
+
+func present(fsys fs.FS, e Entry) bool {
+	for _, f := range e.Files {
+		if _, err := fs.Stat(fsys, f); err != nil {
+			return false
+		}
+	}
+	return len(e.Files) > 0
 }

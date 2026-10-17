@@ -6,16 +6,6 @@ import (
 	"math"
 )
 
-// PCM is Ebiten's F32 format: little-endian float32, interleaved stereo.
-func PCM(s Stereo) []byte {
-	buf := make([]byte, s.Len()*8)
-	for i := range s.L {
-		binary.LittleEndian.PutUint32(buf[i*8:], math.Float32bits(s.L[i]))
-		binary.LittleEndian.PutUint32(buf[i*8+4:], math.Float32bits(s.R[i]))
-	}
-	return buf
-}
-
 // WAV is 16-bit stereo, for auditioning outside the game.
 func WAV(s Stereo) []byte {
 	const channels, bits = 2, 16

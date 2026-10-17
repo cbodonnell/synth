@@ -14,6 +14,13 @@ func Validate(s Song) error {
 		errs = append(errs, fmt.Errorf("LoopStart %g outside [0, %g)", s.LoopStart, s.Length))
 	}
 
+	if s.Loop && s.Vary != (Variation{}) {
+		errs = append(errs, errors.New("Vary is for sound effects, not a looping song"))
+	}
+	if s.Vary.Pitch < 0 || s.Vary.Gain < 0 || s.Vary.Takes < 0 || s.Voices < 0 {
+		errs = append(errs, errors.New("Vary and Voices can't be negative"))
+	}
+
 	buses := map[string]bool{}
 	for _, b := range s.Buses {
 		if buses[b.Name] {

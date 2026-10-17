@@ -1,6 +1,8 @@
 package songs
 
 import (
+	"slices"
+
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/patches"
 )
@@ -11,14 +13,45 @@ import (
 // fires many times a second stays dry, since even a faint tail keeps a voice alive and
 // the player only holds so many. Noise layers play at C4, where a filter's key tracking
 // leaves its cutoff alone.
+//
+// Priority follows the tiers, so a flood of footsteps or coins gives way before a blow,
+// and a blow before a fanfare. Whatever a game fires over and over varies each play and
+// is capped, so it can't crowd out the rest.
 func Platformer() []synth.Song {
-	return []synth.Song{
-		pfJump(), pfDoubleJump(), pfLand(), pfClimb(),
-		pfSwing(), pfHit(), pfCrit(), pfMagic(), pfHurt(), pfMonsterDie(), pfDeath(),
-		pfPickup(), pfMeso(), pfDrop(), pfPotion(), pfBuff(), pfPortal(),
-		pfLevelUp(), pfQuest(),
-		pfClick(), pfOpen(), pfClose(), pfPop(), pfError(),
+	return slices.Concat(
+		pfTier(0,
+			pfRepeat(pfJump(), synth.Variation{Pitch: 0.5, Gain: 1, Takes: 2}, 2),
+			pfDoubleJump(),
+			pfRepeat(pfLand(), synth.Variation{Pitch: 1, Gain: 1.5, Takes: 3}, 2),
+			pfRepeat(pfClimb(), synth.Variation{Pitch: 1.5, Gain: 2, Takes: 3}, 2),
+		),
+		pfTier(1,
+			pfRepeat(pfPickup(), synth.Variation{Pitch: 0.25, Gain: 1}, 3),
+			pfRepeat(pfMeso(), synth.Variation{Pitch: 0.3, Gain: 1}, 4),
+			pfDrop(), pfPotion(), pfBuff(), pfPortal(),
+		),
+		pfTier(2,
+			pfRepeat(pfSwing(), synth.Variation{Pitch: 1, Gain: 1, Takes: 3}, 3),
+			pfRepeat(pfHit(), synth.Variation{Pitch: 1.5, Gain: 1.5, Takes: 4}, 4),
+			pfCrit(), pfMagic(),
+			pfRepeat(pfHurt(), synth.Variation{Pitch: 1, Gain: 1, Takes: 2}, 2),
+			pfRepeat(pfMonsterDie(), synth.Variation{Pitch: 1, Gain: 1}, 4),
+			pfRepeat(pfClick(), synth.Variation{}, 2), pfOpen(), pfClose(), pfPop(), pfError(),
+		),
+		pfTier(3, pfDeath(), pfLevelUp(), pfQuest()),
+	)
+}
+
+func pfTier(priority int, songs ...synth.Song) []synth.Song {
+	for i := range songs {
+		songs[i].Priority = priority
 	}
+	return songs
+}
+
+func pfRepeat(s synth.Song, v synth.Variation, voices int) synth.Song {
+	s.Vary, s.Voices = v, voices
+	return s
 }
 
 // pfSound mixes layers through a shared room and a limiter, so every effect lands at the

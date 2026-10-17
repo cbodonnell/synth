@@ -306,7 +306,6 @@ func TestLoudness(t *testing.T) {
 
 func TestEncodings(t *testing.T) {
 	s := NewStereo(10)
-	assert.Len(t, PCM(s), 80)
 	assert.Len(t, WAV(s), 44+40)
 }
 
@@ -356,4 +355,11 @@ func TestTapeStopEndsInSilence(t *testing.T) {
 	held := Stereo{L: buf.L[samples(0.5):samples(0.8)], R: buf.R[samples(0.5):samples(0.8)]}
 	assert.Zero(t, held.Peak())
 	assert.NotZero(t, Stereo{L: buf.L[samples(0.8):], R: buf.R[samples(0.8):]}.Peak(), "and resumes after")
+}
+
+func TestTakesReseedTheNoise(t *testing.T) {
+	s := oneNote(tone(Noise), 60, 0, 0.1)
+	assert.Equal(t, Render(s), Render(Take(s, 0)))
+	assert.NotEqual(t, Render(s), Render(Take(s, 1)))
+	assert.Equal(t, Render(Take(s, 1)), Render(Take(s, 1)))
 }

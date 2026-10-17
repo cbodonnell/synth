@@ -78,7 +78,7 @@ ends at a true zero, with a 2ms minimum attack and 5ms minimum release against c
 `Song.Length` is authoritative. `RenderLoop` returns `Intro` (everything before
 `LoopStart` plus the first pass, from silence) and `Body` (the loop with its own tail
 wrapped onto its start). Body is rendered from only the loop's notes, so the intro's tail
-is never heard twice. This is exactly Ebiten's `NewInfiniteLoopWithIntroF32` shape.
+is never heard twice. The player plays it as an intro once, then the body forever.
 Time-invariant effects (EQ, delay, reverb) loop seamlessly; a compressor on the master is
 approximate at the seam. A note starting at or after `Length` fails `Validate`.
 
@@ -100,6 +100,17 @@ animation can keep time. Renders happen on goroutines (`Prepare` warms them), so
 `PlayMusic` never stalls a frame. `PlayGain` trims one effect, for a sound heard from
 across the map. Tests drive the Mixer with a recording `Sink`.
 
+The Player owns two Ebiten players, one each for music and effects, each reading an
+endless `stream` that sums its voices itself: per-voice gain ramped over 5ms so nothing
+clicks, playback rate with Hermite interpolation, and the loop wrap (`looped`, which
+blends the bake's overlap into the loop start as Ebiten's `InfiniteLoop` did). A voice
+starts on the first frame of the stream's next read, so voices started together are
+sample-aligned. The effects stream runs with a 40ms buffer, since a new effect waits
+behind it. A sound's `Vary` (pitch and gain at random per play, and `Takes`: renders
+whose noise is reseeded by `synth.Take`, never the same take twice running) and its
+`Voices` cap and `Priority` are applied there, so `Render` stays pure. Stream tests read
+the stream directly; they never need an audio device.
+
 ### Baking
 
 Rendering a full band takes seconds, and on WebAssembly's one thread it starves the game's
@@ -111,7 +122,8 @@ game's test asserts `bake.Stale` is empty, and the player renders live any song 
 bake doesn't match. Bump `Revision` when a change to rendering changes what songs sound
 like. A looping file is the intro, then the first pass only until it settles into the
 body (`settle`), then the body rotated to start there, then a little more of it, which
-Ebiten's `InfiniteLoop` crossfades into the loop start to hide the codec's seam.
+the player blends into the loop start to hide the codec's seam. A sound with `Takes`
+bakes a file per take.
 
 ### Content
 
@@ -152,7 +164,8 @@ Ebiten's `InfiniteLoop` crossfades into the loop start to hide the codec's seam.
   in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
   through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).
   Anything fired many times a second stays dry, since a reverb's faint tail holds a
-  voice for a second and the player keeps only 16.
+  voice for a second and the player keeps only 16. Priority follows the tiers, and
+  whatever a game repeats (footsteps, hits, coins) varies and is capped.
 
 Drum-bus compressors undo velocity crescendos; a build's roll or soft kick belongs on
 its own part off the bus.
