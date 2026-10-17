@@ -95,9 +95,16 @@ animation can keep time. Renders happen on goroutines (`Prepare` warms them), so
 
 - `goldenbrown.go`, the Golden Brown intro: harpsichord sound design and irregular metre
   (`Meter.Bars = {3, 3, 3, 4}`).
-- `amberhours.go`, "Amber Hours": an original in Golden Brown's spirit, a D minor
-  harpsichord waltz in `{3, 3, 3, 5}` with a recorder, bass, and a brushed kit. Its form
-  is a string of sections (`"AAAABBAA"`), each part writing its line pass by pass.
+- `amberhours.go`, "Amber Hours": an original in Golden Brown's spirit with
+  Interstellar's pipe organ, a D minor harpsichord waltz in `{3, 3, 3, 4}`: recorder,
+  bass, brushed kit, a ticking clock, and organ pedal, ostinato, and chords opened by an
+  `AutoFilter` swell box. Its form is a string of sections (`"AAAABBAA"`), each part
+  writing its line pass by pass.
+- `playasunrise.go`, "Playa Sunrise": the same `{3, 3, 3, 4}` lilt taken to a desert
+  festival at dawn, E mixolydian and lightly swung: handpan keeping Golden Brown's
+  interlock, tanpura and didgeridoo drones, djembes and shaker, sitar and bansuri
+  sharing a hook with meend bends, a phased pad, wind, and chimes. It shares `form`
+  with Amber Hours.
 - `lavalamp.go`, "Lava Lamp Sun": a full band (kit on a group bus, Höfner-style bass,
   double-tracked phased rhythm guitars, wah-fuzz lead with bends, Leslie organ, Juno
   arp). The reference for mixing; balance with `go run ./cmd/synth -id <id> -stems`,

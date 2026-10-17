@@ -70,6 +70,41 @@ func Recorder() synth.Patch {
 	}
 }
 
+// PipeOrgan is a church organ's principal chorus: open flues at 16', 8', 4', and 2', a
+// stopped flute and a quint, each rank a cent or two off the next so they beat slowly,
+// and the wind's chiff as a pipe speaks. It has no Leslie; a pipe organ moves in the room.
+func PipeOrgan() synth.Patch {
+	chiff := synth.Envelope{Attack: 0.005, Decay: 0.05, Release: 0.02}
+	return synth.Patch{
+		Name: "pipe organ",
+		Oscs: []synth.Osc{
+			{Wave: synth.Sine, Semi: -12, Level: 0.5},
+			{Wave: synth.Saw, Level: 0.6},
+			{Wave: synth.Pulse, Level: 0.4, Cents: 1.5},
+			{Wave: synth.Saw, Semi: 12, Level: 0.35, Cents: -1},
+			{Wave: synth.Sine, Semi: 19, Level: 0.15},
+			{Wave: synth.Saw, Semi: 24, Level: 0.12, Cents: 2},
+			{Wave: synth.Noise, Level: 0.06, Env: &chiff},
+		},
+		Amp:    synth.Envelope{Attack: 0.06, Release: 0.25},
+		Filter: synth.Filter{Cutoff: 2800, KeyTrack: 0.5},
+		Gain:   0.06,
+	}
+}
+
+// Tick is a clock's escapement: a click of band-passed noise and a ping too short to
+// have a pitch.
+func Tick() synth.Patch {
+	return synth.Patch{
+		Name:     "tick",
+		Oscs:     []synth.Osc{{Wave: synth.Noise}, {Wave: synth.Sine, Fixed: 3200, Level: 0.5}},
+		Amp:      synth.Envelope{Attack: 0.0005, Decay: 0.025, Release: 0.01},
+		Filter:   synth.Filter{Mode: synth.BandPass, Cutoff: 4000, Resonance: 0.4},
+		Velocity: 0.8,
+		Gain:     0.3,
+	}
+}
+
 // Bass is a picked electric bass: saw and sub through a filter that snaps shut.
 func Bass() synth.Patch {
 	return synth.Patch{
