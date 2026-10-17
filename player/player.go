@@ -4,11 +4,15 @@ package player
 
 import (
 	"bytes"
+	"io"
+	"io/fs"
 	"sync"
 	"time"
 
 	"github.com/cbodonnell/synth"
+	"github.com/cbodonnell/synth/bake"
 	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/audio/vorbis"
 )
 
 type Sink interface {
@@ -36,7 +40,22 @@ const maxEffects = 16
 type rendered struct {
 	done        chan struct{}
 	pcm         []byte
-	intro, body int64 // bytes; body 0 means a one-shot
+	ogg         []byte // baked music, decoded as it plays instead of held as pcm
+	intro, body int64  // bytes; body 0 means a one-shot
+}
+
+const bytesPerSample = 8
+
+type Option func(*Player)
+
+// Baked plays songs from a bake.Bake directory where its bake is fresh, and renders the
+// rest. Effects are decoded once into memory; music streams from its compressed file.
+func Baked(fsys fs.FS) Option {
+	return func(p *Player) {
+		if m, err := bake.Load(fsys); err == nil {
+			p.baked, p.manifest = fsys, m
+		}
+	}
 }
 
 // Player is the Ebiten-backed Sink. Exactly one per process: Ebiten panics on a second
@@ -50,13 +69,20 @@ type Player struct {
 	gain    float64
 	gen     int // bumped on every music change, so a render that lands late is dropped
 	effects []*ebaudio.Player
+
+	baked    fs.FS
+	manifest bake.Manifest
 }
 
-func New() *Player {
-	return &Player{
+func New(opts ...Option) *Player {
+	p := &Player{
 		ctx:   ebaudio.NewContext(synth.SampleRate),
 		cache: make(map[string]*rendered),
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // Prepare renders songs in the background, so the first PlayMusic doesn't wait on them.
@@ -74,18 +100,49 @@ func (p *Player) render(s synth.Song) *rendered {
 	}
 	r := &rendered{done: make(chan struct{})}
 	p.cache[s.ID] = r
+	e, baked := p.manifest.Fresh(s)
 	go func() {
 		defer close(r.done)
+		if baked && p.load(r, s, e) == nil {
+			return
+		}
 		if !s.Loop {
 			r.pcm = synth.PCM(synth.Render(s))
 			return
 		}
 		l := synth.RenderLoop(s)
 		r.pcm = synth.PCM(synth.Concat(l.Intro, l.Body))
-		r.intro = int64(len(r.pcm) - l.Body.Len()*8)
-		r.body = int64(l.Body.Len() * 8)
+		r.intro = int64(len(r.pcm) - l.Body.Len()*bytesPerSample)
+		r.body = int64(l.Body.Len() * bytesPerSample)
 	}()
 	return r
+}
+
+func (p *Player) load(r *rendered, s synth.Song, e bake.Entry) error {
+	ogg, err := fs.ReadFile(p.baked, e.File)
+	if err != nil {
+		return err
+	}
+	if s.Loop {
+		r.ogg = ogg
+		r.intro = int64(e.Intro * bytesPerSample)
+		r.body = int64(e.Body * bytesPerSample)
+		return nil
+	}
+	d, err := vorbis.DecodeF32(bytes.NewReader(ogg))
+	if err != nil {
+		return err
+	}
+	r.pcm, err = io.ReadAll(d)
+	return err
+}
+
+// stream is the music's source: a fresh decoder over a baked file, or the rendered pcm.
+func (r *rendered) stream() (io.ReadSeeker, error) {
+	if r.ogg == nil {
+		return bytes.NewReader(r.pcm), nil
+	}
+	return vorbis.DecodeF32(bytes.NewReader(r.ogg))
 }
 
 // PlayMusic returns at once; playback starts when the render is ready.
@@ -100,7 +157,7 @@ func (p *Player) PlayMusic(s synth.Song, gain float64) {
 
 	go func() {
 		<-r.done
-		if len(r.pcm) == 0 {
+		if len(r.pcm) == 0 && r.ogg == nil {
 			return
 		}
 
@@ -110,14 +167,14 @@ func (p *Player) PlayMusic(s synth.Song, gain float64) {
 			return
 		}
 
-		var pl *ebaudio.Player
-		var err error
-		if r.body > 0 {
-			loop := ebaudio.NewInfiniteLoopWithIntroF32(bytes.NewReader(r.pcm), r.intro, r.body)
-			pl, err = p.ctx.NewPlayerF32(loop)
-		} else {
-			pl, err = p.ctx.NewPlayerF32(bytes.NewReader(r.pcm))
+		src, err := r.stream()
+		if err != nil {
+			return
 		}
+		if r.body > 0 {
+			src = ebaudio.NewInfiniteLoopWithIntroF32(src, r.intro, r.body)
+		}
+		pl, err := p.ctx.NewPlayerF32(src)
 		if err != nil {
 			return
 		}

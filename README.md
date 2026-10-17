@@ -38,6 +38,15 @@ and slides, including bent plucked strings; drive; and EQ, chorus, phaser, delay
 compression, kick-keyed sidechain pumping, automated filter sweeps, tape stops, a
 look-ahead limiter, and bitcrush as inserts, send buses, group buses, or master effects.
 
+A game ships its songs baked, since a full band takes seconds to render (and far more on
+WebAssembly). The songs stay the source; a stale bake is caught by `bake.Stale` in a test
+and rendered live in the meantime:
+
+```go
+bake.Bake("assets/baked", songs...)              // at authoring time; needs oggenc
+p := player.New(player.Baked(os.DirFS("assets/baked")))
+```
+
 ```sh
 make play ID=goldenbrown   # render, print the envelope, play
 make score ID=goldenbrown  # piano roll

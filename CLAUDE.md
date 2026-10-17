@@ -30,8 +30,12 @@ make play ID=goldenbrown           # render to a wav, print the envelope, play i
 make play ID=kick DUMP=1           # write the wav only
 make score ID=goldenbrown          # piano roll, one column per half beat
 go run ./cmd/synth -id lavalamp -stems   # each part's peak and level, for mixing
+go run ./cmd/synth -bake <dir>     # bake everything to Ogg Vorbis (needs oggenc)
 make demo                          # Ebiten window: Golden Brown with a beat-synced display
 ```
+
+`cmd/synth` is `studio.Main` over the example content; a game wraps `studio` around its
+own songs and sounds to get the same loop.
 
 Never launch the demo to check work; cover it with tests and `make play ... DUMP=1`.
 
@@ -87,7 +91,21 @@ rolls), `|` a bar line (needs no spaces), `!`/`?` accent and ghost. `Strum` roll
 A game holds a `player.Mixer` over it: levels, mute, music that doesn't restart when asked
 for again, and `Beat()`, which maps the playhead through the loop onto `Song.Meter` so
 animation can keep time. Renders happen on goroutines (`Prepare` warms them), so
-`PlayMusic` never stalls a frame. Tests drive the Mixer with a recording `Sink`.
+`PlayMusic` never stalls a frame. `PlayGain` trims one effect, for a sound heard from
+across the map. Tests drive the Mixer with a recording `Sink`.
+
+### Baking
+
+Rendering a full band takes seconds, and on WebAssembly's one thread it starves the game's
+frames, so a game ships baked songs: `bake.Bake` renders each to Ogg Vorbis (via oggenc)
+beside a `bake.json` manifest, and `player.New(player.Baked(fsys))` decodes them instead,
+streaming music and holding effects in memory. The songs stay the source: the manifest
+fingerprints each one (by walking the value, plus `Revision` and the bake's format), a
+game's test asserts `bake.Stale` is empty, and the player renders live any song whose
+bake doesn't match. Bump `Revision` when a change to rendering changes what songs sound
+like. A looping file is the intro, then the first pass only until it settles into the
+body (`settle`), then the body rotated to start there, then a little more of it, which
+Ebiten's `InfiniteLoop` crossfades into the loop start to hide the codec's seam.
 
 ### Content
 
@@ -115,6 +133,11 @@ animation can keep time. Renders happen on goroutines (`Prepare` warms them), so
 - `smokesignal.go`, "Smoke Signal": 2015 festival trap. Half-time drums with ratcheted
   hat rolls, a gliding distorted 808, brass, and a `TapeStop` on the parts that should
   spin down before the drop (an insert per part, so the air horns survive the silence).
+- `woodlands.go`, "The Woodlands": the Firefly festival in the woods outside Dover,
+  stomp-clap indie folk in G (acoustic guitar, banjo rolls, upright bass, whistled
+  verse, a gang singalong with mandolin tremolo and glockenspiel, a shouted "Hey!")
+  until nightfall, when crickets, fireflies, an arp, and a pad take a bridge that
+  builds back into the last chorus.
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
   in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
   through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).
