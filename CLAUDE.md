@@ -93,25 +93,33 @@ rolls), `|` a bar line (needs no spaces), `!`/`?` accent and ghost. `Strum` roll
 
 ### Playing in a game
 
-`player.New()` creates the process's one Ebiten audio context (a second call panics).
+`player.New()` creates the process's one audio output (a second call panics on the
+desktop, where it's Ebiten's audio context).
 A game holds a `player.Mixer` over it: levels, mute, music that doesn't restart when asked
 for again, and `Beat()`, which maps the playhead through the loop onto `Song.Meter` so
 animation can keep time. Renders happen on goroutines (`Prepare` warms them), so
 `PlayMusic` never stalls a frame. `PlayGain` trims one effect, for a sound heard from
 across the map. Tests drive the Mixer with a recording `Sink`.
 
-The Player owns one Ebiten player reading a `bus`: the music and effects `stream`s
+The Player owns one output reading a `bus`: the music and effects `stream`s
 summed, then a peak limiter (no look-ahead, so no latency; ceiling -1 dB, or
 `player.Ceiling`) so sounds that land together can't clip. Each stream sums its own
 voices: per-voice gain ramped over 5ms so nothing clicks, playback rate with Hermite
 interpolation, and the loop wrap (`looped`, which blends the bake's overlap into the
 loop start as Ebiten's `InfiniteLoop` did). A voice starts on the first frame of the
-stream's next mix, so voices started together are sample-aligned. The bus runs with a
-40ms buffer, since a new effect waits behind it; baked music decodes on its own
+stream's next mix, so voices started together are sample-aligned. A new effect waits
+behind whatever the output has queued. On the desktop the output is an Ebiten player
+with a 40ms buffer (`player.Buffer`). In a browser it is an AudioWorklet of the player's
+own (`output_js.go`, `worklet.js`): Ebiten's asks for 170ms at a time and pads what isn't
+mixed with silence, so it would need a buffer longer than that. The worklet asks for
+1024 frames whenever it holds less than 64ms (`player.Latency`), Go mixes them on the
+spot, and it runs only while the page is shown and focused. A stall longer than the
+latency is heard as a click and logged to the console. Browsers without AudioWorklet
+(or pages not served securely) fall back to Ebiten with a 250ms buffer. Baked music decodes on its own
 goroutine half a second ahead (`ahead`) so decoding stays out of the bus's reads, and
 at gain 0 the music stream stands still rather than decoding a loop nobody hears.
 `MusicPosition` is what the music stream has mixed less what the bus has mixed but
-Ebiten hasn't played. A sound's `Vary` (pitch and gain at random per play, and `Takes`: renders
+the output hasn't played. A sound's `Vary` (pitch and gain at random per play, and `Takes`: renders
 whose noise is reseeded by `synth.Take`, never the same take twice running) and its
 `Voices` cap and `Priority` are applied there, so `Render` stays pure. Stream tests read
 the stream directly; they never need an audio device.

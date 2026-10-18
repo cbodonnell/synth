@@ -1,5 +1,6 @@
-// Package player plays rendered songs through Ebiten. A game holds one Mixer; the Mixer
-// drives a Sink, which is a Player in the game and Silent in tests.
+// Package player plays rendered songs: through Ebiten, or in a browser through its own
+// AudioWorklet. A game holds one Mixer; the Mixer drives a Sink, which is a Player in the
+// game and Silent in tests.
 package player
 
 import (
@@ -14,7 +15,6 @@ import (
 
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/bake"
-	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/audio/vorbis"
 )
 
@@ -42,8 +42,10 @@ const maxEffects = 16
 
 // The bus runs continuously, so a new effect waits behind whatever is buffered.
 // Ebiten's default half second would be heard; this is short but safe on desktop.
-// In a browser it is not: see Buffer.
 const busBuffer = 40 * time.Millisecond
+
+// A browser's worklet asks for more of the bus when it holds less than this.
+const workletLatency = 64 * time.Millisecond
 
 type rendered struct {
 	done        chan struct{}
@@ -59,12 +61,16 @@ func Ceiling(db float64) Option {
 	return func(p *Player) { p.ceiling = db }
 }
 
-// Buffer sets how much of the bus is mixed ahead of the device. In a browser Ebiten's
-// audio worklet asks for 8192 frames (170ms at 48kHz) at a time and pads whatever the
-// bus hasn't mixed yet with silence, so a buffer under that is heard as crackle; give
-// a browser more than a request.
+// Buffer sets how much of the bus Ebiten's output mixes ahead of the device: on the
+// desktop, and in a browser without AudioWorklet.
 func Buffer(d time.Duration) Option {
 	return func(p *Player) { p.buffer = d }
+}
+
+// Latency sets how much of the bus a browser's worklet keeps queued. Less is heard
+// sooner; a page that stalls for longer than this is heard as a click.
+func Latency(d time.Duration) Option {
+	return func(p *Player) { p.latency = d }
 }
 
 // Baked plays songs from a bake.Bake directory where its bake is fresh, and renders the
@@ -77,16 +83,16 @@ func Baked(fsys fs.FS) Option {
 	}
 }
 
-// Player is the Ebiten-backed Sink. Exactly one per process: Ebiten panics on a second
+// Player is the Sink that plays. Exactly one per process: Ebiten panics on a second
 // audio context. Music and effects each mix their voices in a stream, and one bus sums
-// and limits the two for the one Ebiten player.
+// and limits the two for the one output.
 type Player struct {
-	ctx            *ebaudio.Context
 	music, effects *stream
 	bus            *bus
-	out            *ebaudio.Player
+	out            output
 	ceiling        float64
 	buffer         time.Duration
+	latency        time.Duration
 
 	mu      sync.Mutex
 	cache   map[string]*rendered
@@ -101,7 +107,6 @@ type Player struct {
 
 func New(opts ...Option) *Player {
 	p := &Player{
-		ctx:     ebaudio.NewContext(synth.SampleRate),
 		music:   newStream(0, 0),
 		effects: newStream(1, maxEffects),
 		cache:   make(map[string]*rendered),
@@ -109,18 +114,14 @@ func New(opts ...Option) *Player {
 		last:    make(map[string]int),
 		ceiling: defaultCeiling,
 		buffer:  busBuffer,
+		latency: workletLatency,
 	}
 	for _, o := range opts {
 		o(p)
 	}
 	p.music.hold = true
 	p.bus = newBus(p.music, p.effects, p.ceiling)
-	var err error
-	if p.out, err = p.ctx.NewPlayerF32(p.bus); err != nil {
-		panic(err)
-	}
-	p.out.SetBufferSize(p.buffer)
-	p.out.Play()
+	p.out = newOutput(p.bus, p.buffer, p.latency)
 	return p
 }
 
@@ -269,7 +270,7 @@ func (p *Player) SetMusicGain(gain float64) {
 }
 
 // The music has played what its stream has mixed, less what the bus has mixed but
-// Ebiten hasn't played yet.
+// the output hasn't played yet.
 func (p *Player) MusicPosition() (time.Duration, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -281,7 +282,7 @@ func (p *Player) MusicPosition() (time.Duration, bool) {
 		return 0, false
 	}
 	music, mixed := p.bus.musicAt()
-	heard := int64(p.out.Position().Seconds() * synth.SampleRate)
+	heard := p.out.played()
 	pos := music - (mixed - heard) - start
 	return time.Duration(pos) * time.Second / synth.SampleRate, pos >= 0
 }
