@@ -113,7 +113,7 @@ with a 40ms buffer (`player.Buffer`). In a browser it is an AudioWorklet of the 
 own (`output_js.go`, `worklet.js`): Ebiten's asks for 170ms at a time and pads what isn't
 mixed with silence, so it would need a buffer longer than that. The worklet asks for
 1024 frames whenever it holds less than 64ms (`player.Latency`), Go mixes them on the
-spot, and it runs only while the page is shown and focused. A stall longer than the
+spot, and the first gesture starts it, as a browser requires. A stall longer than the
 latency is heard as a click and logged to the console. Browsers without AudioWorklet
 (or pages not served securely) fall back to Ebiten with a 250ms buffer. Baked music decodes on its own
 goroutine half a second ahead (`ahead`) so decoding stays out of the bus's reads, and

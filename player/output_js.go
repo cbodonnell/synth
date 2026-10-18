@@ -94,26 +94,17 @@ func (o *workletOutput) send() {
 
 func (o *workletOutput) played() int64 { return o.clock.now(time.Now()) }
 
-// follow runs the audio only while the page is shown and focused, as Ebiten does: the
-// game stands still when it isn't. A browser starts audio only on a gesture, so each one
-// resumes it too.
+// follow resumes the audio on a gesture, since a browser starts audio only on one.
 func (o *workletOutput) follow() {
-	doc, win := js.Global().Get("document"), js.Global()
-	update := js.FuncOf(func(js.Value, []js.Value) any {
-		if doc.Get("visibilityState").String() == "visible" && doc.Call("hasFocus").Bool() {
-			if o.ctx.Get("state").String() != "running" {
-				o.ctx.Call("resume")
-			}
-		} else if o.ctx.Get("state").String() == "running" {
-			o.ctx.Call("suspend")
+	doc := js.Global().Get("document")
+	resume := js.FuncOf(func(js.Value, []js.Value) any {
+		if o.ctx.Get("state").String() != "running" {
+			o.ctx.Call("resume")
 		}
 		return nil
 	})
-	doc.Call("addEventListener", "visibilitychange", update)
-	win.Call("addEventListener", "focus", update)
-	win.Call("addEventListener", "blur", update)
 	for _, e := range []string{"touchend", "keyup", "mouseup"} {
-		doc.Call("addEventListener", e, update)
+		doc.Call("addEventListener", e, resume)
 	}
 }
 
