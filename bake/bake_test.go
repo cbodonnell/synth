@@ -48,6 +48,18 @@ func TestFingerprintFollowsTheSongNotItsPointers(t *testing.T) {
 	assert.NotEqual(t, Fingerprint(a), Fingerprint(c))
 }
 
+// A song computed on another architecture can differ in a float's last bit; it is the
+// same song.
+func TestFingerprintIgnoresLastBitDifferences(t *testing.T) {
+	a, b := tone("a", true), tone("a", true)
+	vel := b.Parts[0].Notes[0].Vel
+	b.Parts[0].Notes[0].Vel = math.Nextafter(vel, 2)
+	assert.Equal(t, Fingerprint(a), Fingerprint(b))
+
+	b.Parts[0].Notes[0].Vel = vel * 1.001
+	assert.NotEqual(t, Fingerprint(a), Fingerprint(b))
+}
+
 func decodedLen(t *testing.T, path string) int {
 	f, err := os.ReadFile(path)
 	require.NoError(t, err)
