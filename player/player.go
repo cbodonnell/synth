@@ -41,7 +41,8 @@ func (Silent) MusicPosition() (time.Duration, bool) { return 0, false }
 const maxEffects = 16
 
 // The bus runs continuously, so a new effect waits behind whatever is buffered.
-// Ebiten's default half second would be heard; this is short but safe.
+// Ebiten's default half second would be heard; this is short but safe on desktop.
+// In a browser it is not: see Buffer.
 const busBuffer = 40 * time.Millisecond
 
 type rendered struct {
@@ -56,6 +57,14 @@ type Option func(*Player)
 // Ceiling sets the master limiter's ceiling in dB below full scale (-1 by default).
 func Ceiling(db float64) Option {
 	return func(p *Player) { p.ceiling = db }
+}
+
+// Buffer sets how much of the bus is mixed ahead of the device. In a browser Ebiten's
+// audio worklet asks for 8192 frames (170ms at 48kHz) at a time and pads whatever the
+// bus hasn't mixed yet with silence, so a buffer under that is heard as crackle; give
+// a browser more than a request.
+func Buffer(d time.Duration) Option {
+	return func(p *Player) { p.buffer = d }
 }
 
 // Baked plays songs from a bake.Bake directory where its bake is fresh, and renders the
@@ -77,6 +86,7 @@ type Player struct {
 	bus            *bus
 	out            *ebaudio.Player
 	ceiling        float64
+	buffer         time.Duration
 
 	mu      sync.Mutex
 	cache   map[string]*rendered
@@ -98,6 +108,7 @@ func New(opts ...Option) *Player {
 		rng:     rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		last:    make(map[string]int),
 		ceiling: defaultCeiling,
+		buffer:  busBuffer,
 	}
 	for _, o := range opts {
 		o(p)
@@ -108,7 +119,7 @@ func New(opts ...Option) *Player {
 	if p.out, err = p.ctx.NewPlayerF32(p.bus); err != nil {
 		panic(err)
 	}
-	p.out.SetBufferSize(busBuffer)
+	p.out.SetBufferSize(p.buffer)
 	p.out.Play()
 	return p
 }
