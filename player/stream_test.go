@@ -1,6 +1,7 @@
 package player
 
 import (
+	"io"
 	"math"
 	"math/rand/v2"
 	"testing"
@@ -10,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// pull reads n frames from s, the way Ebiten would, in uneven chunks.
-func pull(t *testing.T, s *stream, n int) []float32 {
+// pull reads n frames from s (a stream or the bus), the way Ebiten would, in uneven chunks.
+func pull(t *testing.T, s io.Reader, n int) []float32 {
 	out := make([]float32, 0, n*2)
 	for chunk := 0; len(out) < n*2; chunk++ {
 		b := make([]byte, min(97+chunk%3*500, n-len(out)/2)*bytesPerFrame)

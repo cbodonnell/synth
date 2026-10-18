@@ -255,15 +255,24 @@ func (v *voice) stop() {
 	}
 }
 
-// stream is an endless reader that sums its voices for one Ebiten player. A voice
-// started between reads begins on the first frame of the next, so voices started
-// together stay sample-aligned.
+// closer is a source holding something to let go of once its voice is gone.
+type closer interface{ close() }
+
+func release(v *voice) {
+	if c, ok := v.src.(closer); ok {
+		c.close()
+	}
+}
+
+// stream sums its voices into one part of the bus. A voice started between mixes
+// begins on the first frame of the next, so voices started together stay sample-aligned.
 type stream struct {
 	mu     sync.Mutex
 	voices []*voice // oldest first
 	gain   level
 	pos    int64
-	max    int // voices at once; 0 is no limit
+	max    int  // voices at once; 0 is no limit
+	hold   bool // at gain 0, stand still instead of playing on unheard
 	mixed  []float32
 }
 
@@ -271,42 +280,73 @@ func newStream(gain float64, max int) *stream {
 	return &stream{gain: newLevel(gain), max: max}
 }
 
+// Read is the stream on its own, as Ebiten's F32 format.
 func (s *stream) Read(b []byte) (int, error) {
 	n := len(b) / bytesPerFrame
 	if cap(s.mixed) < n*2 {
 		s.mixed = make([]float32, n*2)
 	}
 	mixed := s.mixed[:n*2]
-	clear(mixed)
+	s.mix(mixed)
+	putFloats(b, mixed)
+	return n * bytesPerFrame, nil
+}
 
+// mix overwrites out with the stream's next len(out)/2 frames.
+func (s *stream) mix(out []float32) {
+	clear(out)
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hold && s.silent() {
+		return
+	}
+	n := len(out) / 2
 	live := s.voices[:0]
 	for _, v := range s.voices {
 		if v.done {
+			release(v)
 			continue
 		}
 		if v.start < 0 {
 			v.start = s.pos
 		}
-		v.mix(mixed)
-		if !v.done {
-			live = append(live, v)
+		v.mix(out)
+		if v.done {
+			release(v)
+			continue
 		}
+		live = append(live, v)
 	}
 	clear(s.voices[len(live):])
 	s.voices = live
 	for i := range n {
 		g := s.gain.next()
-		mixed[i*2] *= g
-		mixed[i*2+1] *= g
+		out[i*2] *= g
+		out[i*2+1] *= g
 	}
 	s.pos += int64(n)
-	s.mu.Unlock()
+}
 
-	for i, x := range mixed {
-		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(x))
+func (s *stream) silent() bool { return s.gain.left == 0 && s.gain.cur == 0 }
+
+// held is true while a holding stream stands still at gain 0.
+func (s *stream) held() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hold && s.silent()
+}
+
+// frames is how many frames the stream has mixed.
+func (s *stream) frames() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pos
+}
+
+func putFloats(b []byte, x []float32) {
+	for i, f := range x {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(f))
 	}
-	return n * bytesPerFrame, nil
 }
 
 // play adds v, first making room: a sound past its own limit gives up its oldest play,

@@ -100,13 +100,18 @@ animation can keep time. Renders happen on goroutines (`Prepare` warms them), so
 `PlayMusic` never stalls a frame. `PlayGain` trims one effect, for a sound heard from
 across the map. Tests drive the Mixer with a recording `Sink`.
 
-The Player owns two Ebiten players, one each for music and effects, each reading an
-endless `stream` that sums its voices itself: per-voice gain ramped over 5ms so nothing
-clicks, playback rate with Hermite interpolation, and the loop wrap (`looped`, which
-blends the bake's overlap into the loop start as Ebiten's `InfiniteLoop` did). A voice
-starts on the first frame of the stream's next read, so voices started together are
-sample-aligned. The effects stream runs with a 40ms buffer, since a new effect waits
-behind it. A sound's `Vary` (pitch and gain at random per play, and `Takes`: renders
+The Player owns one Ebiten player reading a `bus`: the music and effects `stream`s
+summed, then a peak limiter (no look-ahead, so no latency; ceiling -1 dB, or
+`player.Ceiling`) so sounds that land together can't clip. Each stream sums its own
+voices: per-voice gain ramped over 5ms so nothing clicks, playback rate with Hermite
+interpolation, and the loop wrap (`looped`, which blends the bake's overlap into the
+loop start as Ebiten's `InfiniteLoop` did). A voice starts on the first frame of the
+stream's next mix, so voices started together are sample-aligned. The bus runs with a
+40ms buffer, since a new effect waits behind it; baked music decodes on its own
+goroutine half a second ahead (`ahead`) so decoding stays out of the bus's reads, and
+at gain 0 the music stream stands still rather than decoding a loop nobody hears.
+`MusicPosition` is what the music stream has mixed less what the bus has mixed but
+Ebiten hasn't played. A sound's `Vary` (pitch and gain at random per play, and `Takes`: renders
 whose noise is reseeded by `synth.Take`, never the same take twice running) and its
 `Voices` cap and `Priority` are applied there, so `Render` stays pure. Stream tests read
 the stream directly; they never need an audio device.

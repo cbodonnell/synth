@@ -40,9 +40,9 @@ func (Silent) MusicPosition() (time.Duration, bool) { return 0, false }
 // Past the cap the lowest priority gives way rather than queueing: a queued effect would arrive late.
 const maxEffects = 16
 
-// The effects stream runs continuously, so a new effect waits behind whatever is
-// buffered. Ebiten's default half second would be heard; this is short but safe.
-const effectsBuffer = 40 * time.Millisecond
+// The bus runs continuously, so a new effect waits behind whatever is buffered.
+// Ebiten's default half second would be heard; this is short but safe.
+const busBuffer = 40 * time.Millisecond
 
 type rendered struct {
 	done        chan struct{}
@@ -52,6 +52,11 @@ type rendered struct {
 }
 
 type Option func(*Player)
+
+// Ceiling sets the master limiter's ceiling in dB below full scale (-1 by default).
+func Ceiling(db float64) Option {
+	return func(p *Player) { p.ceiling = db }
+}
 
 // Baked plays songs from a bake.Bake directory where its bake is fresh, and renders the
 // rest. Effects are decoded once into memory; music streams from its compressed file.
@@ -64,17 +69,18 @@ func Baked(fsys fs.FS) Option {
 }
 
 // Player is the Ebiten-backed Sink. Exactly one per process: Ebiten panics on a second
-// audio context. Music and effects each play through one stream, which mixes their
-// voices itself.
+// audio context. Music and effects each mix their voices in a stream, and one bus sums
+// and limits the two for the one Ebiten player.
 type Player struct {
 	ctx            *ebaudio.Context
 	music, effects *stream
-	musicOut       *ebaudio.Player
+	bus            *bus
+	out            *ebaudio.Player
+	ceiling        float64
 
 	mu      sync.Mutex
 	cache   map[string]*rendered
 	current *voice
-	gain    float64
 	gen     int // bumped on every music change, so a render that lands late is dropped
 	rng     *rand.Rand
 	last    map[string]int // the take each sound played last
@@ -91,20 +97,19 @@ func New(opts ...Option) *Player {
 		cache:   make(map[string]*rendered),
 		rng:     rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		last:    make(map[string]int),
+		ceiling: defaultCeiling,
 	}
 	for _, o := range opts {
 		o(p)
 	}
+	p.music.hold = true
+	p.bus = newBus(p.music, p.effects, p.ceiling)
 	var err error
-	if p.musicOut, err = p.ctx.NewPlayerF32(p.music); err != nil {
+	if p.out, err = p.ctx.NewPlayerF32(p.bus); err != nil {
 		panic(err)
 	}
-	effectsOut, err := p.ctx.NewPlayerF32(p.effects)
-	if err != nil {
-		panic(err)
-	}
-	effectsOut.SetBufferSize(effectsBuffer)
-	effectsOut.Play()
+	p.out.SetBufferSize(busBuffer)
+	p.out.Play()
 	return p
 }
 
@@ -181,7 +186,8 @@ func interleave(s synth.Stereo) []float32 {
 	return out
 }
 
-// source is a fresh read of the audio: a decoder over a baked file, or the rendered pcm.
+// source is a fresh read of the audio: the rendered pcm, or a decoder over a baked file
+// that runs ahead of playback.
 func (r *rendered) source() (source, error) {
 	var src seekable = &memory{pcm: r.pcm}
 	if r.ogg != nil {
@@ -191,10 +197,14 @@ func (r *rendered) source() (source, error) {
 		}
 		src = &decoded{rs: d}
 	}
-	if r.body == 0 {
-		return src, nil
+	var out source = src
+	if r.body > 0 {
+		out = &looped{src: src, start: r.intro, end: r.intro + r.body}
 	}
-	return &looped{src: src, start: r.intro, end: r.intro + r.body}, nil
+	if r.ogg != nil {
+		out = newAhead(out)
+	}
+	return out, nil
 }
 
 // PlayMusic returns at once; playback starts when the render is ready.
@@ -220,13 +230,13 @@ func (p *Player) PlayMusic(s synth.Song, gain float64) {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if gen != p.gen {
+			if c, ok := src.(closer); ok {
+				c.close()
+			}
 			return
 		}
 		p.current = newVoice(s.ID, src, 1, 1)
 		p.music.play(p.current, 0)
-		if p.gain > 0 {
-			p.musicOut.Play()
-		}
 	}()
 }
 
@@ -242,32 +252,27 @@ func (p *Player) StopMusic() {
 	p.current = nil
 }
 
-// Pauses outright at 0 so a muted game isn't streaming a loop nobody can hear.
+// At 0 the music stands still, so a muted game isn't decoding a loop nobody can hear.
 func (p *Player) SetMusicGain(gain float64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.gain = gain
 	p.music.setGain(gain)
-	switch {
-	case gain <= 0:
-		p.musicOut.Pause()
-	case p.current != nil:
-		p.musicOut.Play()
-	}
 }
 
+// The music has played what its stream has mixed, less what the bus has mixed but
+// Ebiten hasn't played yet.
 func (p *Player) MusicPosition() (time.Duration, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.current == nil || !p.musicOut.IsPlaying() {
+	if p.current == nil || p.music.held() {
 		return 0, false
 	}
 	start, ok := p.music.started(p.current)
 	if !ok {
 		return 0, false
 	}
-	pos := p.musicOut.Position() - time.Duration(start)*time.Second/synth.SampleRate
-	return pos, pos >= 0
+	music, mixed := p.bus.musicAt()
+	heard := int64(p.out.Position().Seconds() * synth.SampleRate)
+	pos := music - (mixed - heard) - start
+	return time.Duration(pos) * time.Second / synth.SampleRate, pos >= 0
 }
 
 // Play renders an uncached effect on the spot. Effects are short, but Prepare them anyway
