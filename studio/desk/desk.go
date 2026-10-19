@@ -1,5 +1,6 @@
 // Package desk is the studio's window: a transport, a browser of the game's songs and
-// sounds, and the arrangement on a timeline, playing through synth's own render.
+// sounds, and the arrangement on a timeline or in a mixer, playing through synth's own
+// render and saving its edits back into the source.
 package desk
 
 import (
@@ -50,6 +51,13 @@ func Run(c Config) error {
 		d.watcher = w
 		go w.Run()
 	}
+	if d.watcher != nil {
+		d.docs = session.NewDocs(d.watcher.Dirs())
+	} else if _, dirs, err := session.Sources(); err != nil {
+		d.noSource = err.Error()
+	} else {
+		d.docs = session.NewDocs(dirs)
+	}
 	id := d.view.ID
 	if id == "" {
 		if all := d.lib.All(); len(all) > 0 {
@@ -61,6 +69,7 @@ func Run(c Config) error {
 	ebiten.SetWindowTitle("synth studio")
 	ebiten.SetWindowSize(1440, 900)
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	ebiten.SetWindowClosingHandled(true)
 	return ebiten.RunGame(d)
 }
 
@@ -68,6 +77,13 @@ type desk struct {
 	lib    session.Library
 	layout session.Layout
 	view   session.View
+
+	docs *session.Docs
+	// The song's doc while it can be edited; why it can't, when it's an arrangement.
+	doc      *session.Doc
+	locked   string
+	noSource string // why no song can be edited
+	note     string // how the last save went
 
 	player  *player.Player
 	preview *player.Preview
@@ -86,6 +102,12 @@ type desk struct {
 	watcher *session.Watcher
 	build   session.Build
 	status  string
+	// A build waiting behind unsaved edits, and whether to hand off to it now.
+	waiting *session.Build
+	reload  bool
+
+	ask  *prompt
+	quit bool
 
 	scale   float64
 	w, h    int
@@ -93,6 +115,7 @@ type desk struct {
 	ui      *ebui.Manager
 	widgets *widgets
 	tl      timeline
+	mx      mixer
 	stale   bool // laid out for a view that has changed
 }
 
@@ -108,10 +131,25 @@ func (d *desk) open(id string, fresh bool) {
 	}
 	playing := d.view.Playing && !fresh
 	d.stop()
+	if d.doc != nil {
+		d.doc.Release()
+	}
+	d.doc, d.locked = nil, ""
+	if a, ok := d.lib.Arrangement(id); ok {
+		switch doc, err := d.openDoc(a); {
+		case err != nil:
+			d.locked = err.Error()
+			l.Custom = true
+		default:
+			d.doc = doc
+			l = session.Arranged(doc.Now())
+		}
+	}
+	d.mx = mixer{}
 	d.layout, d.take, d.loudness, d.seam = l, nil, math.Inf(-1), false
 	d.view.ID, d.view.Playing = id, playing
 	if fresh {
-		d.view = session.View{ID: id, Loop: d.view.Loop, Click: d.view.Click, Browser: d.view.Browser}
+		d.view = session.View{ID: id, Loop: d.view.Loop, Click: d.view.Click, Browser: d.view.Browser, Mixer: d.view.Mixer}
 		d.tl.fit(d)
 	}
 	if !session.Timed(l.Song) {
@@ -122,6 +160,119 @@ func (d *desk) open(id string, fresh bool) {
 		d.widgets.refreshBrowser(d)
 	}
 	d.render()
+}
+
+func (d *desk) openDoc(a synth.Arrangement) (*session.Doc, error) {
+	if d.docs == nil {
+		return nil, errors.New(d.noSource)
+	}
+	return d.docs.Open(a)
+}
+
+// readOnly is why the song can't be edited.
+func (d *desk) readOnly() string {
+	if d.locked != "" {
+		return "read-only: " + d.locked
+	}
+	return "written as code: shown, not editable"
+}
+
+// edit edits the song, if it can be edited, and plays the edit.
+func (d *desk) edit(f func(a *synth.Arrangement)) {
+	if d.doc == nil {
+		return
+	}
+	d.doc.Edit(f)
+	d.changed()
+}
+
+// changed lays out and plays the doc as it is now.
+func (d *desk) changed() {
+	d.layout = session.Arranged(d.doc.Now())
+	d.view.Solo = slices.DeleteFunc(d.view.Solo, func(name string) bool { return !d.hasLane(name) })
+	d.note = ""
+	d.render()
+}
+
+func (d *desk) undo() {
+	if d.doc != nil && d.mx.drag == nil && d.doc.Undo() {
+		d.changed()
+	}
+}
+
+func (d *desk) redo() {
+	if d.doc != nil && d.mx.drag == nil && d.doc.Redo() {
+		d.changed()
+	}
+}
+
+func (d *desk) dirty() bool { return d.docs != nil && len(d.docs.Dirty()) > 0 }
+
+// save writes the song's edits into its source.
+func (d *desk) save() {
+	if d.doc == nil || !d.doc.Dirty() {
+		return
+	}
+	err := d.docs.Save(d.doc)
+	if !d.doc.Dirty() {
+		d.saved(d.doc.Path)
+		d.note = "saved " + filepath.Base(d.doc.Path)
+	}
+	if err != nil {
+		d.note = "not saved: " + err.Error()
+	}
+}
+
+// saved tells the watcher about a file the studio wrote. A build waiting to be reloaded
+// doesn't have it, so it's built again.
+func (d *desk) saved(path string) {
+	if d.watcher == nil {
+		return
+	}
+	d.watcher.Saved(path)
+	if d.waiting != nil {
+		d.waiting = nil
+		d.watcher.Rebuild()
+	}
+}
+
+func (d *desk) toggleMute(name string) {
+	i := slices.IndexFunc(d.layout.Arrangement.Tracks, func(t synth.Track) bool { return t.Name == name })
+	if i < 0 || !d.editable("Tracks", i, "Mute") {
+		return
+	}
+	d.edit(func(a *synth.Arrangement) { a.Tracks[i].Mute = !a.Tracks[i].Mute })
+}
+
+func (d *desk) toggleMixer() {
+	d.view.Mixer = !d.view.Mixer
+	d.mx.menu, d.mx.typing = nil, nil
+}
+
+// closing asks what to do with unsaved edits before the window closes.
+func (d *desk) closing() {
+	var names []string
+	for _, id := range d.docs.Dirty() {
+		if a, ok := d.lib.Arrangement(id); ok && a.Name != "" {
+			id = a.Name
+		}
+		names = append(names, id)
+	}
+	slices.Sort(names)
+	d.ask = &prompt{
+		text: "Unsaved edits to " + strings.Join(names, ", ") + ".",
+		choices: []choice{
+			{"Save and close", func() {
+				if err := d.docs.SaveAll(); err != nil {
+					d.note = "not saved: " + err.Error()
+					return
+				}
+				d.quit = true
+			}},
+			{"Close without saving", func() { d.quit = true }},
+			{"Cancel", func() {}},
+		},
+	}
 }
 
 func (d *desk) hasLane(name string) bool {
@@ -236,6 +387,15 @@ func (d *desk) toggleBrowser() {
 }
 
 func (d *desk) Update() error {
+	if d.quit {
+		return ebiten.Termination
+	}
+	if ebiten.IsWindowBeingClosed() && d.ask == nil {
+		if !d.dirty() {
+			return ebiten.Termination
+		}
+		d.closing()
+	}
 	if err := d.receiveBuilds(); err != nil {
 		return err
 	}
@@ -256,11 +416,21 @@ func (d *desk) Update() error {
 	if d.ui == nil {
 		return nil
 	}
+	if d.ask != nil {
+		d.ask.update(d)
+		return nil
+	}
 	if err := d.ui.Update(); err != nil {
 		return err
 	}
-	d.keys()
-	d.tl.update(d)
+	if !d.mx.keys(d) {
+		d.keys()
+	}
+	if d.view.Mixer {
+		d.mx.update(d, d.widgets.timeline)
+	} else {
+		d.tl.update(d)
+	}
 	d.widgets.refresh(d)
 	return nil
 }
@@ -268,10 +438,18 @@ func (d *desk) Update() error {
 func (d *desk) keys() {
 	shift := ebiten.IsKeyPressed(ebiten.KeyShift)
 	command := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyMeta)
+	pressed := inpututil.IsKeyJustPressed
 	if command {
+		switch {
+		case pressed(ebiten.KeyZ) && shift:
+			d.redo()
+		case pressed(ebiten.KeyZ):
+			d.undo()
+		case pressed(ebiten.KeyS):
+			d.save()
+		}
 		return
 	}
-	pressed := inpututil.IsKeyJustPressed
 	switch {
 	case pressed(ebiten.KeySpace):
 		d.togglePlay()
@@ -290,6 +468,12 @@ func (d *desk) keys() {
 		if d.view.Track != "" {
 			d.toggleSolo(d.view.Track)
 		}
+	case pressed(ebiten.KeyM):
+		if d.view.Track != "" {
+			d.toggleMute(d.view.Track)
+		}
+	case pressed(ebiten.KeyX):
+		d.toggleMixer()
 	case pressed(ebiten.KeyZ):
 		d.tl.fit(d)
 	case pressed(ebiten.KeyB):
@@ -301,10 +485,18 @@ func (d *desk) keys() {
 	}
 }
 
-// receiveBuilds follows the rebuilds, and hands off to a new one when it's built.
+// receiveBuilds follows the rebuilds, and hands off to a new one when it's built,
+// unless there are unsaved edits, which it waits behind.
 func (d *desk) receiveBuilds() error {
 	if d.watcher == nil {
 		return nil
+	}
+	if d.waiting != nil && (d.reload || !d.dirty()) {
+		b := *d.waiting
+		d.reload, d.waiting = false, nil
+		if err := d.handOff(b); err != nil {
+			return err
+		}
 	}
 	for {
 		select {
@@ -314,20 +506,31 @@ func (d *desk) receiveBuilds() error {
 			case session.Failed:
 				fmt.Fprintln(os.Stderr, b.Output)
 			case session.Built:
-				h := session.Handoff{Binary: b.Binary, Args: []string{"-edit", "-view", d.view.String()}}
-				if err := h.Write(d.handoff); err != nil {
-					d.build = session.Build{State: session.Failed, Output: "handoff: " + err.Error()}
+				if d.dirty() {
+					d.waiting = &b
 					continue
 				}
-				// Fade out rather than cut off.
-				d.preview.Stop()
-				time.Sleep(20 * time.Millisecond)
-				return ErrReload
+				if err := d.handOff(b); err != nil {
+					return err
+				}
 			}
 		default:
 			return nil
 		}
 	}
+}
+
+// handOff leaves a handoff to the build and returns ErrReload, or nil if it couldn't.
+func (d *desk) handOff(b session.Build) error {
+	h := session.Handoff{Binary: b.Binary, Args: []string{"-edit", "-view", d.view.String()}}
+	if err := h.Write(d.handoff); err != nil {
+		d.build = session.Build{State: session.Failed, Output: "handoff: " + err.Error()}
+		return nil
+	}
+	// Fade out rather than cut off.
+	d.preview.Stop()
+	time.Sleep(20 * time.Millisecond)
+	return ErrReload
 }
 
 // buildStatus is a line on the rebuild, for the status bar.
@@ -340,6 +543,8 @@ func (d *desk) buildStatus() string {
 	case d.build.State == session.Failed:
 		first, _, _ := strings.Cut(d.build.Output, "\n")
 		return "build failed, still playing the last build: " + first
+	case d.waiting != nil:
+		return "a new build is waiting behind unsaved edits"
 	}
 	return "reloads when its source changes"
 }
@@ -371,9 +576,16 @@ func (d *desk) Draw(screen *ebiten.Image) {
 		return
 	}
 	d.widgets.drawUnder(screen)
-	d.tl.draw(screen, d)
+	if d.view.Mixer {
+		d.mx.draw(screen, d, d.widgets.timeline)
+	} else {
+		d.tl.draw(screen, d)
+	}
 	d.ui.Draw(screen)
 	d.widgets.drawOver(screen, d)
+	if d.ask != nil {
+		d.ask.draw(screen, d)
+	}
 }
 
 // px is a length in the window's pixels.

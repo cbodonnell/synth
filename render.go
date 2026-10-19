@@ -143,24 +143,27 @@ func (r *Renderer) RenderLoop(s Song) Looped {
 func loopLength(s Song) int { return max(samples(s.Length), samples(s.end()+s.tail())+1) }
 
 // Gauges meter each part on its own, its notes through its inserts and at its level,
-// as the song's first pass mixes them. After a Render or RenderLoop of the song its
-// parts are already rendered.
-func (r *Renderer) Gauges(s Song) []Gauge {
+// and each bus, its effects' output at its level, as the song's first pass mixes them.
+// After a Render or RenderLoop of the song all of it is already rendered.
+func (r *Renderer) Gauges(s Song) (parts, buses []Gauge) {
 	defer r.begin(false)()
 	n := renderLength(s)
 	if s.Loop && min(samples(s.LoopStart), samples(s.Length)) < samples(s.Length) {
 		n = loopLength(s)
 	}
-	out := make([]Gauge, len(s.Parts))
+	rendered, keys, costs := r.parts(s, s.Parts, n)
+	parts = make([]Gauge, len(s.Parts))
 	var wg sync.WaitGroup
 	for i, p := range s.Parts {
-		wg.Go(func() {
-			part, _, _ := r.part(p, s.take, n)
-			out[i] = newGauge(part, n, float32(dbToGain(p.Level)))
-		})
+		wg.Go(func() { parts[i] = newGauge(rendered[i], n, float32(dbToGain(p.Level))) })
+	}
+	bus := r.buses(s, s.Parts, rendered, keys, costs, n)
+	buses = make([]Gauge, len(s.Buses))
+	for i, b := range s.Buses {
+		wg.Go(func() { buses[i] = newGauge(bus[i], n, float32(dbToGain(b.Level))) })
 	}
 	wg.Wait()
-	return out
+	return parts, buses
 }
 
 // Progress is how far the render running has come, 0..1, counted in notes.
@@ -316,7 +319,23 @@ func (r *Renderer) mixdown(s Song, parts []Part, n int) Stereo {
 	if n == 0 {
 		return master
 	}
+	rendered, keys, costs := r.parts(s, parts, n)
+	for i, p := range parts {
+		if !slices.ContainsFunc(s.Buses, func(b Bus) bool { return b.Name == p.Out }) {
+			master.addSpan(rendered[i], float32(dbToGain(p.Level)))
+		}
+	}
+	for i, buf := range r.buses(s, parts, rendered, keys, costs, n) {
+		master.addSpan(buf, float32(dbToGain(s.Buses[i].Level)))
+	}
+	blockDC(master)
+	for _, e := range s.Master {
+		e.Process(master)
+	}
+	return master
+}
 
+func (r *Renderer) parts(s Song, parts []Part, n int) ([]span, []key, []time.Duration) {
 	rendered := make([]span, len(parts))
 	keys := make([]key, len(parts))
 	costs := make([]time.Duration, len(parts))
@@ -325,7 +344,12 @@ func (r *Renderer) mixdown(s Song, parts []Part, n int) Stereo {
 		wg.Go(func() { rendered[i], keys[i], costs[i] = r.part(p, s.take, n) })
 	}
 	wg.Wait()
+	return rendered, keys, costs
+}
 
+// buses are each bus's output, before its level: what plays into it and sends to it,
+// through its effects.
+func (r *Renderer) buses(s Song, parts []Part, rendered []span, keys []key, costs []time.Duration, n int) []span {
 	type feed struct {
 		part int
 		gain float32
@@ -338,8 +362,6 @@ func (r *Renderer) mixdown(s Song, parts []Part, n int) Stereo {
 		g := float32(dbToGain(p.Level))
 		if _, ok := feeds[p.Out]; ok {
 			feeds[p.Out] = append(feeds[p.Out], feed{i, g})
-		} else {
-			master.addSpan(rendered[i], g)
 		}
 		for _, send := range p.Sends {
 			if _, ok := feeds[send.Bus]; ok {
@@ -347,7 +369,8 @@ func (r *Renderer) mixdown(s Song, parts []Part, n int) Stereo {
 			}
 		}
 	}
-	for _, b := range s.Buses {
+	out := make([]span, len(s.Buses))
+	for bi, b := range s.Buses {
 		k := newKey()
 		k.int(n)
 		k.value(reflect.ValueOf(b.Effects))
@@ -355,7 +378,7 @@ func (r *Renderer) mixdown(s Song, parts []Part, n int) Stereo {
 			k.key(keys[f.part])
 			k.float(float64(f.gain))
 		}
-		buf, _ := r.reuse(k, func() (Stereo, time.Duration) {
+		out[bi], _ = r.reuse(k, func() (Stereo, time.Duration) {
 			var inputs time.Duration
 			buf := NewStereo(n)
 			for _, f := range feeds[b.Name] {
@@ -367,13 +390,8 @@ func (r *Renderer) mixdown(s Song, parts []Part, n int) Stereo {
 			}
 			return buf, inputs
 		})
-		master.addSpan(buf, float32(dbToGain(b.Level)))
 	}
-	blockDC(master)
-	for _, e := range s.Master {
-		e.Process(master)
-	}
-	return master
+	return out
 }
 
 func (r *Renderer) part(p Part, take, n int) (span, key, time.Duration) {

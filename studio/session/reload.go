@@ -2,18 +2,17 @@ package session
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
-	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -106,36 +105,88 @@ type Watcher struct {
 	main   string
 	dirs   []string
 	out    string
+
+	mu    sync.Mutex
+	own   map[string]string // the files the studio saved, as it left them
+	again bool
 }
 
-// Watch finds the program's main package and the directories of its source. The
-// builds go in out.
-func Watch(out string) (*Watcher, error) {
+// Sources finds the running program's main package and the directories of its source:
+// every package it imports from its own module and from synth's.
+func Sources() (main string, dirs []string, err error) {
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Path == "" {
-		return nil, errors.New("no build info to rebuild from")
+		return "", nil, errors.New("no build info to find the source from")
 	}
 	cmd := exec.Command("go", "list", "-deps", "-f", "{{if .Module}}{{.Module.Path}}\t{{.Dir}}{{end}}", info.Path)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	list, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("go list %s: %v: %s", info.Path, err, strings.TrimSpace(stderr.String()))
+		return "", nil, fmt.Errorf("go list %s: %v: %s", info.Path, err, strings.TrimSpace(stderr.String()))
 	}
-	w := &Watcher{Builds: make(chan Build, 8), main: info.Path, out: out}
 	for line := range strings.SplitSeq(strings.TrimSpace(string(list)), "\n") {
 		module, dir, ok := strings.Cut(line, "\t")
 		if ok && (module == info.Main.Path || module == Synth) {
-			w.dirs = append(w.dirs, dir)
+			dirs = append(dirs, dir)
 		}
 	}
-	return w, nil
+	return info.Path, dirs, nil
 }
 
-// Fingerprint names every Go file in the directories with its size and modification
-// time, so it changes when one is saved, added or removed. Tests are left out.
-func Fingerprint(dirs ...string) string {
-	var lines []string
+// Watch watches the program's source, putting the builds in out.
+func Watch(out string) (*Watcher, error) {
+	main, dirs, err := Sources()
+	if err != nil {
+		return nil, err
+	}
+	return &Watcher{Builds: make(chan Build, 8), main: main, dirs: dirs, out: out, own: map[string]string{}}, nil
+}
+
+// Dirs are the directories of the program's source.
+func (w *Watcher) Dirs() []string { return w.dirs }
+
+// Saved notes a file the studio has saved. It already plays what it saved, so the file
+// as it left it needs no rebuild.
+func (w *Watcher) Saved(path string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.own[path] = files(filepath.Dir(path))[path]
+}
+
+// Rebuild builds again, as when a build waiting to be reloaded is missing a save.
+func (w *Watcher) Rebuild() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.again = true
+}
+
+// changed reports whether the source differs from what was built, leaving out the
+// studio's own saves.
+func (w *Watcher) changed(built, now map[string]string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.again {
+		w.again = false
+		return true
+	}
+	for path, stat := range now {
+		if built[path] != stat && w.own[path] != stat {
+			return true
+		}
+	}
+	for path := range built {
+		if _, ok := now[path]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+// files are the Go files in the directories, each with its size and modification time,
+// which change when it's saved. Tests are left out.
+func files(dirs ...string) map[string]string {
+	out := map[string]string{}
 	for _, dir := range dirs {
 		entries, _ := os.ReadDir(dir)
 		for _, e := range entries {
@@ -146,33 +197,31 @@ func Fingerprint(dirs ...string) string {
 			if err != nil {
 				continue
 			}
-			lines = append(lines, fmt.Sprintf("%s %d %d", filepath.Join(dir, e.Name()), info.Size(), info.ModTime().UnixNano()))
+			out[filepath.Join(dir, e.Name())] = fmt.Sprintf("%d %d", info.Size(), info.ModTime().UnixNano())
 		}
 	}
-	slices.Sort(lines)
-	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
-	return hex.EncodeToString(sum[:])
+	return out
 }
 
 // Run watches until the process ends, reporting each build on Builds.
 func (w *Watcher) Run() {
-	last := Fingerprint(w.dirs...)
+	built := files(w.dirs...)
 	for n := 1; ; {
 		time.Sleep(400 * time.Millisecond)
-		now := Fingerprint(w.dirs...)
-		if now == last {
+		now := files(w.dirs...)
+		if !w.changed(built, now) {
 			continue
 		}
 		// Wait for a save that writes several files to finish.
 		for {
 			time.Sleep(300 * time.Millisecond)
-			again := Fingerprint(w.dirs...)
-			if again == now {
+			again := files(w.dirs...)
+			if maps.Equal(again, now) {
 				break
 			}
 			now = again
 		}
-		last = now
+		built = now
 		w.Builds <- Build{State: Building}
 		binary := filepath.Join(w.out, fmt.Sprintf("studio-%d", n))
 		n++
@@ -183,8 +232,9 @@ func (w *Watcher) Run() {
 			continue
 		}
 		// Source saved during the build isn't in it: build again.
-		if Fingerprint(w.dirs...) != now {
+		if !maps.Equal(files(w.dirs...), now) {
 			os.Remove(binary)
+			built = nil
 			continue
 		}
 		w.Builds <- Build{State: Built, Binary: binary}

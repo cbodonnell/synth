@@ -13,6 +13,7 @@ import (
 
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/songs"
+	"github.com/cbodonnell/synth/studio/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,10 +82,10 @@ func TestExportCompiles(t *testing.T) {
 	main.WriteString("package main\n\nimport (\n\t\"encoding/json\"\n\t\"os\"\n\n\t\"github.com/cbodonnell/synth\"\n)\n\n")
 	main.WriteString("func main() {\n\tjson.NewEncoder(os.Stdout).Encode([]synth.Song{\n")
 	for _, s := range songs.Songs() {
-		src, err := Source(Arrange(s), "main")
+		src, err := session.Source(Arrange(s), "main")
 		require.NoError(t, err, string(src))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, s.ID+".go"), src, 0o644))
-		main.WriteString("\t\t" + ident(s.ID, true) + "(),\n")
+		main.WriteString("\t\t" + session.Ident(s.ID, true) + "(),\n")
 	}
 	main.WriteString("\t})\n}\n")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte(main.String()), 0o644))

@@ -236,4 +236,20 @@ under pressure like a DAW's frozen tracks. Top-level renders take turns, so a ma
 never released under a render reading it.
 Playback is the player's `Preview`, a voice that plays a buffer from any frame, loops a
 region, and crossfades a new render in at its position. Meters read `synth.Gauge`s of
-each part and the mix at the playhead.
+each part, each bus and the mix at the playhead.
+
+Edits go through a `session.Doc`: `Load` finds the file holding the arrangement's
+literal (by its `ID`, in the source dirs `go list -deps` gives) and refuses one that
+doesn't write the running build's value. `Edit` applies a func to a deep copy as one
+undo step (`Hold`/`Release` make a drag one), 200 deep. `Custom` says whether a field is
+code (a call, a var, arithmetic) rather than a literal, so the window shows it but
+doesn't edit it. A save diffs the doc as last saved against the doc now, matching list
+items by name (a Send by its bus) or by equality, and splices `literal` source over only
+what changed, found by `go/ast` position; the result is gofmted, read back to the doc,
+and written by rename, or refused if the file changed on disk. Write numbers rounded to
+the control's resolution (`session.Round`): `literal` writes ten significant digits, so
+last-bit noise fails the read back. `session.Docs` holds the docs open, keeping others
+in a saved file savable; the watcher leaves the studio's own saves out (`Saved`), and a
+build that finishes behind unsaved edits waits for "Reload, dropping unsaved edits".
+The mixer (`X`) is the desk's `mixer`, hand-drawn like the timeline: faders, pan and
+send knobs, outs, mute (`Track.Mute`, saved) and solo (the studio's).

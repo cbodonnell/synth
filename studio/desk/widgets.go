@@ -33,10 +33,10 @@ const (
 type widgets struct {
 	root *ebui.BaseContainer
 
-	play, loop, click                               *ebui.Button
-	position, tempo, meter, key, loudness, progress *ebui.Label
-	items                                           map[string]*ebui.Button
-	status                                          *ebui.Label
+	play, loop, click, undo, redo, save, mixer, reload *ebui.Button
+	position, tempo, meter, key, loudness, progress    *ebui.Label
+	items                                              map[string]*ebui.Button
+	status                                             *ebui.Label
 
 	transport, browser, statusBar, timeline image.Rectangle
 }
@@ -85,8 +85,12 @@ func buildWidgets(d *desk) *widgets {
 	ws.meter = label(72)
 	ws.key = label(120)
 	ws.click = button("Click", 56, d.toggleClick)
-	ws.loudness = label(150)
-	ws.progress = label(140)
+	ws.loudness = label(130)
+	ws.progress = label(110)
+	ws.undo = button("Undo", 52, d.undo)
+	ws.redo = button("Redo", 52, d.redo)
+	ws.save = button("Save", 52, d.save)
+	ws.mixer = button("Mixer", 56, d.toggleMixer)
 	button("Browser", 70, d.toggleBrowser)
 	ws.root.AddChild(bar)
 
@@ -131,6 +135,15 @@ func buildWidgets(d *desk) *widgets {
 		ebui.WithPosition(ebui.Position{X: px(8), Y: float64(ws.statusBar.Min.Y)}),
 		ebui.WithColor(dim), ebui.WithJustify(ebui.JustifyLeft))
 	ws.root.AddChild(ws.status)
+	reloadW := px(250)
+	ws.reload = ebui.NewButton(
+		ebui.WithSize(reloadW, px(statusH-4)),
+		ebui.WithPosition(ebui.Position{X: w - reloadW - px(4), Y: float64(ws.statusBar.Min.Y) + px(2)}),
+		ebui.WithLabelText("Reload, dropping unsaved edits"),
+		ebui.WithClickHandler(func() { d.reload = true }),
+	)
+	ws.reload.Hide()
+	ws.root.AddChild(ws.reload)
 	ws.refreshBrowser(d)
 	return ws
 }
@@ -142,6 +155,14 @@ func (ws *widgets) refreshBrowser(d *desk) {
 		} else {
 			b.SetRole(roleItem)
 		}
+	}
+}
+
+func enable(b *ebui.Button, on bool) {
+	if on {
+		b.Enable()
+	} else {
+		b.Disable()
 	}
 }
 
@@ -164,6 +185,20 @@ func (ws *widgets) refresh(d *desk) {
 	toggle(ws.play, d.view.Playing)
 	toggle(ws.loop, d.view.Loop)
 	toggle(ws.click, d.view.Click)
+	toggle(ws.mixer, d.view.Mixer)
+	undo, redo := 0, 0
+	if d.doc != nil {
+		undo, redo = d.doc.History()
+	}
+	enable(ws.undo, undo > 0)
+	enable(ws.redo, redo > 0)
+	enable(ws.save, d.doc != nil && d.doc.Dirty())
+	toggle(ws.save, d.doc != nil && d.doc.Dirty())
+	if d.waiting != nil {
+		ws.reload.Show()
+	} else {
+		ws.reload.Hide()
+	}
 	ws.position.SetText(session.Format(s, d.view.At))
 
 	timed := session.Timed(s)
@@ -189,9 +224,18 @@ func (ws *widgets) refresh(d *desk) {
 		ws.progress.SetText("")
 	}
 
-	hint := "space play · return start · C loop · shift+C seam · K click · S solo · Z fit · B browser · cmd+wheel zoom"
+	hint := "space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · Z fit · B browser · cmd+wheel zoom · cmd+Z undo · cmd+S save"
+	if d.view.Mixer {
+		hint = "drag faders and knobs (shift: fine) · double-click resets · click a value to type it · " + hint
+	}
 	if l.Custom {
-		hint = "written as code: shown, not editable · " + hint
+		hint = d.readOnly() + " · " + hint
+	}
+	if d.view.Mixer && d.mx.hint != "" {
+		hint = d.mx.hint
+	}
+	if d.note != "" {
+		hint = d.note + "   ·   " + hint
 	}
 	ws.status.SetText(d.buildStatus() + "   ·   " + hint)
 }

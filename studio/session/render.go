@@ -24,9 +24,10 @@ type Take struct {
 	// Frames of Buffer before the body; all of it when it doesn't loop.
 	Intro int
 	Loops bool
-	// Each part's meter, by name, in song frames; the master's, in buffer frames.
-	Parts  map[string]synth.Gauge
-	Master synth.Gauge
+	// Each part's and bus's meter, by name, in song frames; the master's, in buffer
+	// frames.
+	Parts, Buses map[string]synth.Gauge
+	Master       synth.Gauge
 	// Integrated LUFS of the mix without the metronome, as Song.Target measures it.
 	Loudness float64
 }
@@ -64,9 +65,13 @@ func Render(r *synth.Renderer, s synth.Song, m Mix) Take {
 	}
 
 	t.Master = synth.NewGauge(t.Buffer)
-	t.Parts = map[string]synth.Gauge{}
-	for i, g := range r.Gauges(s) {
+	t.Parts, t.Buses = map[string]synth.Gauge{}, map[string]synth.Gauge{}
+	parts, buses := r.Gauges(s)
+	for i, g := range parts {
 		t.Parts[s.Parts[i].Name] = g
+	}
+	for i, g := range buses {
+		t.Buses[s.Buses[i].Name] = g
 	}
 	return t
 }

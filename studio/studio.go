@@ -107,7 +107,7 @@ func Main(lib Library) {
 			return
 		}
 		if *export {
-			src, err := Source(Arrange(s), *pkg)
+			src, err := session.Source(Arrange(s), *pkg)
 			if err != nil {
 				fail("%s: %v", *id, err)
 			}

@@ -27,6 +27,16 @@ func (l Library) Music() []synth.Song {
 // All is every song and sound, compiled.
 func (l Library) All() []synth.Song { return append(l.Music(), l.Sounds...) }
 
+// Arrangement is the arrangement with the ID, if the song is one.
+func (l Library) Arrangement(id string) (synth.Arrangement, bool) {
+	for _, a := range l.Arrangements {
+		if a.ID == id {
+			return a, true
+		}
+	}
+	return synth.Arrangement{}, false
+}
+
 // Open lays out the song or sound with the ID.
 func (l Library) Open(id string) (Layout, bool) {
 	for _, a := range l.Arrangements {
@@ -56,6 +66,7 @@ type View struct {
 	Scroll  float64 // seconds at the timeline's left edge
 	Top     float64 // pixels the lanes are scrolled down
 	Browser bool
+	Mixer   bool     // the mixer in place of the arrangement
 	Folded  []string // group buses folded shut
 }
 

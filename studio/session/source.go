@@ -1,4 +1,4 @@
-package studio
+package session
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ import (
 // A patch or chain equal to one of synth's patches is written as that call.
 func Source(a synth.Arrangement, pkg string) ([]byte, error) {
 	body := fmt.Sprintf("var %s = %s\n\nfunc %s() synth.Song { return %s.Song() }\n",
-		ident(a.ID, false), literal(reflect.ValueOf(a), true), ident(a.ID, true), ident(a.ID, false))
+		Ident(a.ID, false), literal(reflect.ValueOf(a), true), Ident(a.ID, true), Ident(a.ID, false))
 	imports := `"github.com/cbodonnell/synth"`
 	if strings.Contains(body, "patches.") {
 		imports += "\n" + `"github.com/cbodonnell/synth/patches"`
@@ -30,7 +30,8 @@ func Source(a synth.Arrangement, pkg string) ([]byte, error) {
 	return out, nil
 }
 
-func ident(id string, exported bool) string {
+// Ident is a Go name for an ID, exported or not.
+func Ident(id string, exported bool) string {
 	var b strings.Builder
 	upper := exported
 	for _, r := range id {

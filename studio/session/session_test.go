@@ -119,6 +119,55 @@ func TestSoloAndClickAreTheStudios(t *testing.T) {
 	assert.False(t, math.IsInf(plain.Loudness, 0))
 }
 
+func TestTakeMetersBuses(t *testing.T) {
+	a := waltz()
+	a.Buses = []synth.Bus{{Name: "room", Effects: []synth.Effect{synth.Reverb{}}, Level: -6}}
+	a.Tracks[0].Sends = []synth.Send{{Bus: "room"}}
+	take := Render(synth.NewRenderer(), a.Song(), Mix{})
+	room, ok := take.Buses["room"]
+	require.True(t, ok)
+	assert.NotZero(t, room.Peak(synth.SampleRate, 0.5))
+}
+
+func TestWatcherLeavesOutTheStudiosOwnSaves(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/song.go"
+	require.NoError(t, os.WriteFile(path, []byte("package song\n"), 0o644))
+	w := &Watcher{own: map[string]string{}}
+	built := files(dir)
+	require.NoError(t, os.WriteFile(path, []byte("package song // saved\n"), 0o644))
+	w.Saved(path)
+	assert.False(t, w.changed(built, files(dir)))
+	require.NoError(t, os.WriteFile(path, []byte("package song // edited elsewhere\n"), 0o644))
+	assert.True(t, w.changed(built, files(dir)))
+	w.Rebuild()
+	assert.True(t, w.changed(files(dir), files(dir)), "asked to")
+}
+
+func TestMixerValues(t *testing.T) {
+	for _, db := range []float64{-60, -12, 0, 12} {
+		assert.InDelta(t, db, FaderDB(FaderPosition(db)), 1e-9)
+	}
+	assert.Zero(t, FaderPosition(-200))
+	assert.Equal(t, 1.0, FaderPosition(40))
+	assert.Equal(t, -2.9, Round(-2.9000000000000004, DBStep))
+
+	for _, typed := range []string{"-3.5", "-3.5 dB", " -3.5db"} {
+		db, ok := ParseDB(typed)
+		assert.True(t, ok, typed)
+		assert.Equal(t, -3.5, db, typed)
+	}
+	_, ok := ParseDB("loud")
+	assert.False(t, ok)
+	for _, pan := range []float64{-1, -0.2, 0, 0.35} {
+		got, ok := ParsePan(FormatPan(pan))
+		assert.True(t, ok)
+		assert.Equal(t, pan, got)
+	}
+	_, ok = ParsePan("2")
+	assert.False(t, ok)
+}
+
 func TestRendersKeepsOnlyTheLatest(t *testing.T) {
 	b := NewRenders()
 	s := waltz().Song()

@@ -11,11 +11,14 @@ import (
 type Layout struct {
 	ID, Name string
 	Song     synth.Song // compiled as it plays: muted tracks absent
-	Tempo    float64
-	Meter    []int
-	Key      string
-	Sections []Section
-	Lanes    []Lane
+	// What the mixer shows: the arrangement, or for a song that isn't one, its parts as
+	// tracks without clips.
+	Arrangement synth.Arrangement
+	Tempo       float64
+	Meter       []int
+	Key         string
+	Sections    []Section
+	Lanes       []Lane
 	// A song that isn't an arrangement: its parts are lanes, each one clip, and nothing
 	// in it can be edited here.
 	Custom bool
@@ -46,7 +49,7 @@ type Block struct {
 // Arranged lays out an arrangement.
 func Arranged(a synth.Arrangement) Layout {
 	l := Layout{
-		ID: a.ID, Name: a.Name, Song: a.Song(),
+		ID: a.ID, Name: a.Name, Song: a.Song(), Arrangement: a,
 		Tempo: a.Tempo, Meter: a.Meter, Key: a.Key,
 	}
 	m := synth.Meter{Beat: 60 / math.Max(a.Tempo, 1e-9), Bars: a.Meter}
@@ -111,6 +114,13 @@ func clipBars(c synth.Clip) int {
 // clip of all its notes.
 func Unarranged(s synth.Song) Layout {
 	l := Layout{ID: s.ID, Name: s.Name, Song: s, Custom: true}
+	l.Arrangement = synth.Arrangement{ID: s.ID, Name: s.Name, Buses: s.Buses, Master: s.Master, Target: s.Target}
+	for _, p := range s.Parts {
+		l.Arrangement.Tracks = append(l.Arrangement.Tracks, synth.Track{
+			Name: p.Name, Patch: p.Patch, Level: p.Level, Pan: p.Pan,
+			Inserts: p.Inserts, Sends: p.Sends, Out: p.Out,
+		})
+	}
 	if Timed(s) {
 		l.Tempo, l.Meter = 60/s.Meter.Beat, s.Meter.Bars
 	}

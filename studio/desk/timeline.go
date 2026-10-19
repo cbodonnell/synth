@@ -167,8 +167,11 @@ func (t *timeline) update(d *desk) {
 		}
 		name := d.layout.Lanes[r.lane].Name
 		d.view.Track = name
-		if s := t.soloBox(d, r); image.Pt(x, y).In(s) {
+		switch {
+		case image.Pt(x, y).In(t.soloBox(d, r)):
 			d.toggleSolo(name)
+		case image.Pt(x, y).In(t.muteBox(d, r)):
+			d.toggleMute(name)
 		}
 		return
 	}
