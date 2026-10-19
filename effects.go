@@ -488,10 +488,13 @@ func slidingMin(x []float64, r int) []float64 {
 // back: the pump of house music. Keyed by the kick's notes rather than its audio, so it
 // pumps exactly where the kick plays and nowhere else.
 type Sidechain struct {
-	Hits    []float64 // seconds, ascending; see Onsets
-	Depth   float64   // 0..1, how far the level drops
-	Attack  float64   // seconds to the bottom of the duck; 0 means 0.004
-	Release float64   // seconds back to full; 0 means 0.2
+	Hits []float64 // seconds, ascending; see Onsets
+	// In an Arrangement, the track whose onsets are the Hits, or several separated by
+	// commas.
+	Key     string
+	Depth   float64 // 0..1, how far the level drops
+	Attack  float64 // seconds to the bottom of the duck; 0 means 0.004
+	Release float64 // seconds back to full; 0 means 0.2
 }
 
 func (sc Sidechain) Tail() float64 { return 0 }

@@ -1,8 +1,6 @@
 package songs
 
 import (
-	"strings"
-
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/patches"
 )
@@ -13,228 +11,252 @@ import (
 //
 // Piano alone for four bars, then the loop: an eight-bar breakdown (piano, pad, the
 // hook on a pluck), an eight-bar build (snare roll, riser, the hook passing to the lead
-// as its filter opens, a half-bar of air), and a sixteen-bar drop where everything pumps off the kick.
-const (
-	bdBeat = 60.0 / 128
-	bdBar  = 4 * bdBeat
-	bd8    = bdBeat / 2
-	bd16   = bdBeat / 4
-
-	bdBreakdown = 4 * bdBar
-	bdBuild     = 12 * bdBar
-	bdDrop      = 20 * bdBar
-	bdEnd       = 36 * bdBar
-)
-
-var (
-	bdChords = []string{"A3,C#4,F#4", "A3,D4,F#4", "A3,C#4,E4", "G#3,B3,E4"}
-	bdRoots  = []string{"F#2,C#3", "D2,A2", "A2,E3", "E2,B2"}
-	bdBass   = []string{"F#1", "D1", "A1", "E1"}
-)
-
-// bars repeats one bar per chord of the progression, n bars in all.
-func bars(n int, bar func(chord int) string) string {
-	var b strings.Builder
-	for i := range n {
-		b.WriteString(bar(i % 4))
-		b.WriteString(" | ")
-	}
-	return b.String()
+// as its filter opens, a half-bar of air), and a sixteen-bar drop where everything pumps
+// off the kick.
+var brighterDays = synth.Arrangement{
+	ID: "brighterdays", Name: "Brighter Days",
+	Tempo: 128, Key: "F# minor",
+	Sections: []synth.Section{
+		{Name: "Piano", Bars: 4},
+		{Name: "Breakdown", Bars: 8},
+		{Name: "Build", Bars: 8},
+		{Name: "Drop", Bars: 16},
+	},
+	Loop: "Breakdown",
+	Tracks: []synth.Track{
+		{
+			Name: "kick", Patch: patches.HouseKick(), Level: 1.9, Out: "drums",
+			Clips: []synth.Clip{{Name: "four", Step: 1, Hit: "C2", Bars: []string{"X x x x"}}},
+			Play:  []synth.Play{{Clip: "four", Bar: 21, Times: 16}},
+		},
+		{
+			// Skips the drum bus, whose compressor would only bring it back up: it holds
+			// back so the drop's can land.
+			Name: "build kick", Patch: patches.HouseKick(), Level: -8,
+			Clips: []synth.Clip{{Name: "four", Step: 1, Hit: "C2", Bars: []string{"x x x x"}}},
+			Play:  []synth.Play{{Clip: "four", Bar: 13, Times: 6}},
+		},
+		{
+			Name: "clap", Patch: patches.Clap(), Level: 14.8, Out: "drums",
+			Sends: []synth.Send{{Bus: "hall", Level: -12}},
+			Clips: []synth.Clip{{Name: "two and four", Step: 0.5, Strum: 0.011, Hit: "D#3,D#3,D#3", Bars: []string{
+				". . X . . . X .",
+			}}},
+			Play: []synth.Play{{Clip: "two and four", Bar: 21, Times: 16}},
+		},
+		{
+			// Doubles its rate every two bars and grows louder as it goes.
+			Name: "snare roll", Patch: patches.Snare(), Level: 5.1, Out: "drums",
+			Sends: []synth.Send{{Bus: "hall", Level: -14}},
+			Clips: []synth.Clip{
+				{Name: "quarters", Step: 1, Vel: 0.4, Hit: "D2", Bars: []string{"x x x x"}},
+				{Name: "eighths", Step: 0.5, Vel: 0.55, Hit: "D2", Bars: []string{"x x x x x x x x"}},
+				{Name: "sixteenths", Step: 0.25, Vel: 0.7, Hit: "D2", Bars: []string{"x x x x x x x x x x x x x x x x"}},
+				{Name: "thirty-seconds", Step: 0.125, Vel: 0.9, Hit: "D2", Bars: []string{
+					"x x x x x x x x x x x x x x x x . . . . . . . . . . . . . . . .",
+				}},
+			},
+			Play: []synth.Play{
+				{Clip: "quarters", Bar: 13, Times: 4},
+				{Clip: "eighths", Bar: 17, Times: 2},
+				{Clip: "sixteenths", Bar: 19},
+				{Clip: "thirty-seconds", Bar: 20},
+			},
+		},
+		{
+			Name: "hats", Patch: patches.HiHat(), Level: -1.9, Pan: 0.25, Out: "drums",
+			Clips: []synth.Clip{{Name: "sixteenths", Step: 0.25, Vel: 0.6, Hit: "F#2", Bars: []string{
+				"o o x o o o x o o o x o o o x o",
+			}}},
+			Play: []synth.Play{{Clip: "sixteenths", Bar: 17, Times: 3}, {Clip: "sixteenths", Bar: 21, Times: 16}},
+		},
+		{
+			Name: "open hat", Patch: patches.OpenHat(), Level: -3.1, Pan: -0.2, Out: "drums",
+			Clips: []synth.Clip{{Name: "offbeats", Step: 0.5, Hit: "A#2", Bars: []string{". x . x . x . x"}}},
+			Play:  []synth.Play{{Clip: "offbeats", Bar: 21, Times: 16}},
+		},
+		{
+			Name: "crash", Patch: patches.Cymbal(2.5), Level: 2.9, Pan: -0.1, Out: "drums",
+			Sends: []synth.Send{{Bus: "hall", Level: -14}},
+			Clips: []synth.Clip{
+				{Name: "soft", Step: 4, Vel: 0.6, Bars: []string{"C#3"}},
+				{Name: "drop", Step: 4, Bars: []string{
+					"C#3!", "-", "-", "-", "-", "-", "-", "-",
+					"C#3", "-", "-", "-", "-", "-", "-", "-",
+				}},
+			},
+			Play: []synth.Play{{Clip: "soft", Bar: 5}, {Clip: "drop", Bar: 21}},
+		},
+		{
+			Name: "boom", Patch: bdBoom(), Level: -1.9, Out: "drums",
+			Sends: []synth.Send{{Bus: "hall", Level: -10.5}},
+			Clips: []synth.Clip{{Name: "boom", Notes: []synth.Note{{Dur: 3.2, Key: 36}}}},
+			Play:  []synth.Play{{Clip: "boom", Bar: 21}},
+		},
+		{
+			Name: "bass", Patch: patches.OffbeatBass(),
+			Inserts: []synth.Effect{synth.Sidechain{Key: "kick, build kick", Depth: 0.9, Release: 0.16}},
+			Clips: []synth.Clip{{Name: "offbeats", Step: 0.5, Gate: 0.8, Bars: []string{
+				". F#1 . F#2 . F#1 . F#2",
+				". D1 . D2 . D1 . D2",
+				". A1 . A2 . A1 . A2",
+				". E1 . E2 . E1 . E2",
+			}}},
+			Play: []synth.Play{{Clip: "offbeats", Bar: 21, Times: 4}},
+		},
+		{
+			Name: "piano", Patch: patches.HousePiano(), Level: 1.9,
+			Inserts: []synth.Effect{synth.Sidechain{Key: "kick, build kick", Depth: 0.45, Release: 0.2}},
+			Sends:   []synth.Send{{Bus: "hall", Level: -10.5}},
+			Clips: []synth.Clip{
+				{Name: "chords", Step: 0.5, Gate: 0.95, Strum: 0.008, Vel: 0.75, Bars: []string{
+					"A3,C#4,F#4! - - A3,C#4,F#4 - - A3,C#4,F#4 -",
+					"A3,D4,F#4! - - A3,D4,F#4 - - A3,D4,F#4 -",
+					"A3,C#4,E4! - - A3,C#4,E4 - - A3,C#4,E4 -",
+					"G#3,B3,E4! - - G#3,B3,E4 - - G#3,B3,E4 -",
+				}},
+				{Name: "air", Step: 0.5, Gate: 0.95, Strum: 0.008, Vel: 0.75, Bars: []string{
+					"A3,C#4,F#4! - - A3,C#4,F#4 - - A3,C#4,F#4 -",
+					"A3,D4,F#4! - - A3,D4,F#4 - - A3,D4,F#4 -",
+					"A3,C#4,E4! - - A3,C#4,E4 - - A3,C#4,E4 -",
+					"G#3,B3,E4! - - G#3,B3,E4 . . . .",
+				}},
+			},
+			Play: []synth.Play{{Clip: "chords", Bar: 1, Times: 4}, {Clip: "air", Bar: 17}, {Clip: "chords", Bar: 21, Times: 4}},
+		},
+		{
+			Name: "piano left", Patch: patches.HousePiano(), Level: 1.9,
+			Inserts: []synth.Effect{synth.Sidechain{Key: "kick, build kick", Depth: 0.45, Release: 0.2}},
+			Sends:   []synth.Send{{Bus: "hall", Level: -10.5}},
+			Clips: []synth.Clip{
+				{Name: "roots", Step: 0.5, Gate: 0.95, Strum: 0.008, Vel: 0.75, Bars: []string{
+					"F#2,C#3 - - - - - - -",
+					"D2,A2 - - - - - - -",
+					"A2,E3 - - - - - - -",
+					"E2,B2 - - - - - - -",
+				}},
+				{Name: "air", Step: 0.5, Gate: 0.95, Strum: 0.008, Vel: 0.75, Bars: []string{
+					"F#2,C#3 - - - - - - -",
+					"D2,A2 - - - - - - -",
+					"A2,E3 - - - - - - -",
+					"E2,B2 - - - . . . .",
+				}},
+			},
+			Play: []synth.Play{{Clip: "roots", Bar: 1, Times: 4}, {Clip: "air", Bar: 17}, {Clip: "roots", Bar: 21, Times: 4}},
+		},
+		{
+			Name: "pad", Patch: patches.SawPad(),
+			Inserts: []synth.Effect{synth.Sidechain{Key: "kick, build kick", Depth: 0.75, Release: 0.25}},
+			Sends:   []synth.Send{{Bus: "hall", Level: -9.1}},
+			Clips: []synth.Clip{
+				{Name: "chords", Step: 4, Gate: 0.98, Vel: 0.7, Bars: []string{"A3,C#4,F#4", "A3,D4,F#4", "A3,C#4,E4", "G#3,B3,E4"}},
+				{Name: "air", Step: 4, Gate: 0.98, Vel: 0.7, Bars: []string{"A3,C#4,F#4", "A3,D4,F#4", "A3,C#4,E4", "."}},
+			},
+			Play: []synth.Play{{Clip: "chords", Bar: 5, Times: 3}, {Clip: "air", Bar: 17}, {Clip: "chords", Bar: 21, Times: 4}},
+		},
+		{
+			Name: "pluck", Patch: patches.HousePluck(), Level: 9.5, Pan: 0.15,
+			Inserts: []synth.Effect{synth.AutoFilter{Points: []synth.Point{{At: 16, Value: 1400}, {At: 48, Value: 6000}}}},
+			Sends:   []synth.Send{{Bus: "echo", Level: -9.1}, {Bus: "hall", Level: -10.5}},
+			Clips: []synth.Clip{{Name: "hook", Step: 0.25, Gate: 0.9, Bars: []string{
+				"F#5 - - E5 - - C#5 - E5 - - F#5 - - A5 -",
+				"F#5 - - E5 - - D5 - E5 - - F#5 - - D5 -",
+				"E5 - - C#5 - - A4 - C#5 - - E5 - - A5 -",
+				"G#5 - - F#5 - - E5 - B4 - - E5 - - G#5 -",
+				"F#5 - - E5 - - C#5 - E5 - - F#5 - - A5 -",
+				"F#5 - - E5 - - D5 - E5 - - F#5 - - D5 -",
+				"E5 - - C#5 - - A4 - C#5 - - E5 - - A5 -",
+				"G#5 - - F#5 - - E5 - F#5 - - G#5 - - B5 -",
+			}}},
+			Play: []synth.Play{{Clip: "hook", Bar: 5}},
+		},
+		{
+			Name: "chord stabs", Patch: patches.HousePluck(), Level: 2.9, Pan: -0.15,
+			Inserts: []synth.Effect{synth.Sidechain{Key: "kick, build kick", Depth: 0.6, Release: 0.18}},
+			Sends:   []synth.Send{{Bus: "hall", Level: -12}},
+			Clips: []synth.Clip{{Name: "stabs", Step: 0.5, Gate: 0.6, Bars: []string{
+				". A3,C#4,F#4 . A3,C#4,F#4 . A3,C#4,F#4 . A3,C#4,F#4!",
+				". A3,D4,F#4 . A3,D4,F#4 . A3,D4,F#4 . A3,D4,F#4!",
+				". A3,C#4,E4 . A3,C#4,E4 . A3,C#4,E4 . A3,C#4,E4!",
+				". G#3,B3,E4 . G#3,B3,E4 . G#3,B3,E4 . G#3,B3,E4!",
+			}}},
+			Play: []synth.Play{{Clip: "stabs", Bar: 21, Times: 4}},
+		},
+		{
+			Name: "lead", Patch: patches.SuperSaw(), Level: 8.9,
+			Inserts: []synth.Effect{
+				synth.AutoFilter{Resonance: 0.2, Points: []synth.Point{
+					{At: 48, Value: 180},
+					{At: 78, Value: 2200},
+					{At: 79.98, Value: 2200},
+					{At: 80, Value: 20000},
+				}},
+				synth.Sidechain{Key: "kick, build kick", Depth: 0.5, Release: 0.2},
+			},
+			Sends: []synth.Send{{Bus: "echo", Level: -12}, {Bus: "hall", Level: -9.1}},
+			Clips: []synth.Clip{
+				{Name: "build", Step: 0.25, Gate: 0.9, Vel: 0.5, Bars: []string{
+					"F#5 - - E5 - - C#5 - E5 - - F#5 - - A5 -",
+					"F#5 - - E5 - - D5 - E5 - - F#5 - - D5 -",
+					"E5 - - C#5 - - A4 - C#5 - - E5 - - A5 -",
+					"G#5 - - F#5 - - E5 - B4 - - E5 - - G#5 -",
+					"F#5 - - E5 - - C#5 - E5 - - F#5 - - A5 -",
+					"F#5 - - E5 - - D5 - E5 - - F#5 - - D5 -",
+					"E5 - - C#5 - - A4 - C#5 - - E5 - - A5 -",
+					"G#5 - - F#5 - - E5 - . . . . . . . .",
+				}},
+				{Name: "hook", Step: 0.25, Gate: 0.9, Bars: []string{
+					"F#5 - - E5 - - C#5 - E5 - - F#5 - - A5 -",
+					"F#5 - - E5 - - D5 - E5 - - F#5 - - D5 -",
+					"E5 - - C#5 - - A4 - C#5 - - E5 - - A5 -",
+					"G#5 - - F#5 - - E5 - B4 - - E5 - - G#5 -",
+					"F#5 - - E5 - - C#5 - E5 - - F#5 - - A5 -",
+					"F#5 - - E5 - - D5 - E5 - - F#5 - - D5 -",
+					"E5 - - C#5 - - A4 - C#5 - - E5 - - A5 -",
+					"G#5 - - F#5 - - E5 - F#5 - - G#5 - - B5 -",
+				}},
+			},
+			Play: []synth.Play{{Clip: "build", Bar: 13}, {Clip: "hook", Bar: 21, Times: 2}},
+		},
+		{
+			Name: "riser", Patch: patches.Riser(14.0625), Level: 1.6,
+			Sends: []synth.Send{{Bus: "hall", Level: -8}},
+			Clips: []synth.Clip{{Name: "rise", Notes: []synth.Note{{Dur: 30, Key: 54, Slide: 12}}, Length: 8}},
+			Play:  []synth.Play{{Clip: "rise", Bar: 13}},
+		},
+	},
+	Buses: []synth.Bus{
+		{Name: "drums", Effects: []synth.Effect{
+			synth.EQ{Bands: []synth.Band{{Kind: synth.LowShelf, Freq: 60, Gain: 2}}},
+			synth.Compressor{Threshold: -16, Ratio: 3, Attack: 0.008, Release: 0.1, Makeup: 2},
+		}},
+		// The tails pump with everything else, which is half of what makes it breathe.
+		{Name: "hall", Effects: []synth.Effect{
+			synth.Reverb{Size: 0.88, Damp: 0.3, PreDelay: 0.03},
+			synth.Sidechain{Key: "kick, build kick", Depth: 0.7, Release: 0.25},
+		}},
+		{Name: "echo", Effects: []synth.Effect{
+			synth.Delay{Time: 0.75, Feedback: 0.4, Damp: 4500, PingPong: true},
+			synth.Sidechain{Key: "kick, build kick", Depth: 0.6, Release: 0.25},
+		}},
+	},
+	Master: []synth.Effect{
+		synth.EQ{Bands: []synth.Band{
+			{Kind: synth.LowCut, Freq: 28},
+			{Kind: synth.HighShelf, Freq: 9000, Gain: 1.5},
+		}},
+		synth.Compressor{Threshold: -12, Ratio: 2, Attack: 0.015, Release: 0.15},
+		synth.Limiter{Ceiling: -0.8},
+	},
+	Target: -14,
 }
 
-func silence(steps int) string { return strings.Repeat(". ", steps) }
+func BrighterDays() synth.Song { return brighterDays.Song() }
 
-func BrighterDays() synth.Song {
-	hook := []string{
-		"F#5 - - E5 - - C#5 - E5 - - F#5 - - A5 - |",
-		"F#5 - - E5 - - D5 - E5 - - F#5 - - D5 - |",
-		"E5 - - C#5 - - A4 - C#5 - - E5 - - A5 - |",
-		"G#5 - - F#5 - - E5 - B4 - - E5 - - G#5 - |",
-	}
-	lift := "G#5 - - F#5 - - E5 - F#5 - - G#5 - - B5 - |"
-	gap := "G#5 - - F#5 - - E5 - . . . . . . . . |"
-	eight := strings.Join(hook, " ") + strings.Join(hook[:3], " ") + lift
-	sixteenths := synth.Phrase{Step: bd16, Gate: 0.9}
-
-	pluckNotes := sixteenths.Notes(silence(4*16), eight)
-	leadNotes := synth.Merge(
-		synth.Phrase{At: bdBuild, Step: bd16, Gate: 0.9, Vel: 0.5}.Notes(
-			strings.Join(hook, " "), strings.Join(hook[:3], " "), gap,
-		),
-		synth.Phrase{At: bdDrop, Step: bd16, Gate: 0.9}.Notes(eight, eight),
-	)
-	stabNotes := synth.Phrase{Step: bd8, Gate: 0.6}.Notes(
-		silence(20*8),
-		bars(16, func(c int) string { return synth.Pattern(bdChords[c], ". x . x . x . X") }),
-	)
-
-	piano := synth.Phrase{Step: bd8, Gate: 0.95, Strum: 0.008, Vel: 0.75}
-	pianoNotes := synth.Merge(
-		piano.Notes(
-			bars(19, func(c int) string { return synth.Pattern(bdChords[c], "X - - x - - x -") }),
-			synth.Pattern(bdChords[3], "X - - x . . . ."),
-			bars(16, func(c int) string { return synth.Pattern(bdChords[c], "X - - x - - x -") }),
-		),
-		piano.Notes(
-			bars(19, func(c int) string { return bdRoots[c] + " - - - - - - -" }),
-			bdRoots[3]+" - - - . . . .",
-			bars(16, func(c int) string { return bdRoots[c] + " - - - - - - -" }),
-		),
-	)
-
-	padNotes := synth.Phrase{Step: bdBar, Gate: 0.98, Vel: 0.7}.Notes(
-		". . . .",
-		bars(15, func(c int) string { return bdChords[c] }),
-		". |",
-		bars(16, func(c int) string { return bdChords[c] }),
-	)
-
-	bassNotes := synth.Phrase{Step: bd8, Gate: 0.8}.Notes(
-		silence(20*8),
-		bars(16, func(c int) string {
-			r := bdBass[c]
-			hi := strings.Replace(r, "1", "2", 1)
-			return ". " + r + " . " + hi + " . " + r + " . " + hi
-		}),
-	)
-
-	// The build's kick skips the drum bus, whose compressor would only bring it back up:
-	// it holds back so the drop's can land.
-	buildKickNotes := synth.Phrase{At: bdBuild, Step: bdBeat}.Notes(synth.Pattern("C2", strings.Repeat("x x x x | ", 6)))
-	kickNotes := synth.Phrase{At: bdDrop, Step: bdBeat}.Notes(synth.Pattern("C2", strings.Repeat("X x x x | ", 16)))
-	hits := synth.Onsets(synth.Merge(buildKickNotes, kickNotes))
-
-	eighths := synth.Phrase{Step: bd8}
-	clapNotes := synth.Phrase{Step: bd8, Strum: 0.011}.Notes(
-		silence(20*8),
-		synth.Pattern("D#3,D#3,D#3", strings.Repeat(". . X . . . X . | ", 16)),
-	)
-	openHatNotes := eighths.Notes(
-		silence(20*8),
-		synth.Pattern("A#2", strings.Repeat(". x . x . x . x | ", 16)),
-	)
-	hatNotes := synth.Phrase{Step: bd16, Vel: 0.6}.Notes(
-		silence(16*16),
-		synth.Pattern("F#2", strings.Repeat("o o x o ", 3*4)), silence(16),
-		synth.Pattern("F#2", strings.Repeat("o o x o ", 16*4)),
-	)
-
-	// The roll doubles its rate every two bars and grows louder as it goes.
-	roll := func(at, step float64, vel float64, rhythm string) []synth.Note {
-		return synth.Phrase{At: at, Step: step, Vel: vel}.Notes(synth.Pattern("D2", rhythm))
-	}
-	snareNotes := synth.Merge(
-		roll(bdBuild, bdBeat, 0.4, strings.Repeat("x x x x ", 4)),
-		roll(bdBuild+4*bdBar, bd8, 0.55, strings.Repeat("x ", 16)),
-		roll(bdBuild+6*bdBar, bd16, 0.7, strings.Repeat("x ", 16)),
-		roll(bdBuild+7*bdBar, bd16/2, 0.9, strings.Repeat("x ", 16)),
-	)
-
-	crashNotes := synth.Merge(
-		synth.Phrase{At: bdBreakdown, Step: bdBar, Vel: 0.6}.Notes("C#3"),
-		synth.Phrase{At: bdDrop, Step: 8 * bdBar}.Notes("C#3! C#3"),
-	)
-
-	riserLength := 7.5 * bdBar
-	riserNotes := []synth.Note{{At: bdBuild, Dur: riserLength, Key: synth.MustKey("F#3"), Slide: 12}}
-
-	boom := patches.HouseKick()
-	boom.Amp.Decay = 1.8
-	boom.Sweep = synth.Sweep{Semis: 36, Time: 0.08}
-	boomNotes := []synth.Note{{At: bdDrop, Dur: 1.5, Key: synth.MustKey("C2")}}
-
-	pump := func(depth, release float64) synth.Sidechain {
-		return synth.Sidechain{Hits: hits, Depth: depth, Release: release}
-	}
-	reverb := func(l float64) synth.Send { return synth.Send{Bus: "hall", Level: l} }
-	delay := func(l float64) synth.Send { return synth.Send{Bus: "echo", Level: l} }
-	drum := func(name string, p synth.Patch, notes []synth.Note, pan, gain float64, sends ...synth.Send) synth.Part {
-		return synth.Part{Name: name, Patch: p, Notes: notes, Pan: pan, Gain: gain, Out: "drums", Sends: sends}
-	}
-
-	return synth.Song{
-		ID:   "brighterdays",
-		Name: "Brighter Days",
-		Parts: []synth.Part{
-			drum("kick", patches.HouseKick(), kickNotes, 0, 1.25),
-			{Name: "build kick", Patch: patches.HouseKick(), Notes: buildKickNotes, Gain: 0.4},
-			drum("clap", patches.Clap(), clapNotes, 0, 5.5, reverb(0.25)),
-			drum("snare roll", patches.Snare(), snareNotes, 0, 1.8, reverb(0.2)),
-			drum("hats", patches.HiHat(), hatNotes, 0.25, 0.8),
-			drum("open hat", patches.OpenHat(), openHatNotes, -0.2, 0.7),
-			drum("crash", patches.Cymbal(2.5), crashNotes, -0.1, 1.4, reverb(0.2)),
-			drum("boom", boom, boomNotes, 0, 0.8, reverb(0.3)),
-			{
-				Name: "bass", Patch: patches.OffbeatBass(), Notes: bassNotes,
-				Inserts: []synth.Effect{pump(0.9, 0.16)},
-			},
-			{
-				Name: "piano", Patch: patches.HousePiano(), Notes: pianoNotes, Gain: 1.25,
-				Inserts: []synth.Effect{pump(0.45, 0.2)},
-				Sends:   []synth.Send{reverb(0.3)},
-			},
-			{
-				Name: "pad", Patch: patches.SawPad(), Notes: padNotes,
-				Inserts: []synth.Effect{pump(0.75, 0.25)},
-				Sends:   []synth.Send{reverb(0.35)},
-			},
-			{
-				Name: "pluck", Patch: patches.HousePluck(), Notes: pluckNotes, Pan: 0.15, Gain: 3,
-				Inserts: []synth.Effect{synth.AutoFilter{Points: []synth.Point{
-					{At: bdBreakdown, Value: 1400}, {At: bdBuild, Value: 6000},
-				}}},
-				Sends: []synth.Send{delay(0.35), reverb(0.3)},
-			},
-			{
-				Name: "chord stabs", Patch: patches.HousePluck(), Notes: stabNotes, Pan: -0.15, Gain: 1.4,
-				Inserts: []synth.Effect{pump(0.6, 0.18)},
-				Sends:   []synth.Send{reverb(0.25)},
-			},
-			{
-				Name: "lead", Patch: patches.SuperSaw(), Notes: leadNotes, Gain: 2.8,
-				Inserts: []synth.Effect{
-					synth.AutoFilter{Resonance: 0.2, Points: []synth.Point{
-						{At: bdBuild, Value: 180},
-						{At: bdDrop - bdBar/2, Value: 2200},
-						{At: bdDrop - 0.01, Value: 2200},
-						{At: bdDrop, Value: 20000},
-					}},
-					pump(0.5, 0.2),
-				},
-				Sends: []synth.Send{delay(0.25), reverb(0.35)},
-			},
-			{
-				Name: "riser", Patch: patches.Riser(riserLength), Notes: riserNotes, Gain: 1.2,
-				Sends: []synth.Send{reverb(0.4)},
-			},
-		},
-		Buses: []synth.Bus{
-			{Name: "drums", Effects: []synth.Effect{
-				synth.EQ{Bands: []synth.Band{{Kind: synth.LowShelf, Freq: 60, Gain: 2}}},
-				synth.Compressor{Threshold: -16, Ratio: 3, Attack: 0.008, Release: 0.1, Makeup: 2},
-			}},
-			// The tails pump with everything else, which is half of what makes it breathe.
-			{Name: "hall", Effects: []synth.Effect{
-				synth.Reverb{Size: 0.88, Damp: 0.3, PreDelay: 0.03},
-				pump(0.7, 0.25),
-			}},
-			{Name: "echo", Effects: []synth.Effect{
-				synth.Delay{Time: 0.75 * bdBeat, Feedback: 0.4, Damp: 4500, PingPong: true},
-				pump(0.6, 0.25),
-			}},
-		},
-		Master: []synth.Effect{
-			synth.EQ{Bands: []synth.Band{
-				{Kind: synth.LowCut, Freq: 28},
-				{Kind: synth.HighShelf, Freq: 9000, Gain: 1.5},
-			}},
-			synth.Compressor{Threshold: -12, Ratio: 2, Attack: 0.015, Release: 0.15},
-			synth.Limiter{Ceiling: -0.8},
-		},
-		Length:    bdEnd,
-		Loop:      true,
-		LoopStart: bdBreakdown,
-		Meter:     synth.Meter{Beat: bdBeat},
-		Target:    -14,
-	}
+// A kick tuned down and left to ring, for the first beat of the drop.
+func bdBoom() synth.Patch {
+	p := patches.HouseKick()
+	p.Amp.Decay = 1.8
+	p.Sweep = synth.Sweep{Semis: 36, Time: 0.08}
+	return p
 }

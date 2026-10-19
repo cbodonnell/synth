@@ -68,6 +68,9 @@ func Validate(s Song) error {
 			if a, ok := e.(automated); ok && !pointsInOrder(a.points()) {
 				errs = append(errs, fmt.Errorf("%s effect %d: Points out of order", name, i))
 			}
+			if sc, ok := e.(Sidechain); ok && sc.Key != "" {
+				errs = append(errs, fmt.Errorf("%s effect %d: a Sidechain Key needs an Arrangement", name, i))
+			}
 		}
 	}
 	return errors.Join(errs...)

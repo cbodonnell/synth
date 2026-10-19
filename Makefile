@@ -1,4 +1,4 @@
-.PHONY: test vet list play score demo
+.PHONY: test vet list play score export demo
 
 test:
 	go test ./...
@@ -16,6 +16,10 @@ play:
 
 score:
 	go run ./cmd/synth -id $(ID) -score
+
+# Print a first draft of a song as a synth.Arrangement.
+export:
+	go run ./cmd/synth -id $(ID) -export
 
 demo:
 	go run ./cmd/demo

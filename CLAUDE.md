@@ -29,6 +29,7 @@ make list                          # songs and sounds
 make play ID=goldenbrown           # render to a wav, print the envelope, play it (afplay)
 make play ID=kick DUMP=1           # write the wav only
 make score ID=goldenbrown          # piano roll, one column per half beat
+make export ID=goldenbrown         # a first draft of any song as a synth.Arrangement
 go run ./cmd/synth -id lavalamp -stems   # each part's peak, level, and LUFS, for mixing
 go run ./cmd/synth -bake <dir>     # bake everything to Ogg Vorbis (needs oggenc)
 make demo                          # Ebiten window: Golden Brown with a beat-synced display
@@ -53,7 +54,8 @@ own buffers and are summed in order, so concurrency never changes the output.
 
 `Patch` (oscillators, unison, amp envelope, state-variable filter with its own envelope,
 LFOs, pitch sweep, drive) → `Part` (notes, inserts, sends, pan) → `Bus` → DC block →
-`Song.Master` → clip. A bus is a send return (one reverb for many parts) or, with
+`Song.Master` → clip. Mix levels (`Part.Level`, `Send.Level`, `Bus.Level`) are dB, 0 is
+unity. A bus is a send return (one reverb for many parts) or, with
 `Part.Out`, a group (a drum kit compressed together). Master chains should end in a
 `Limiter`; the final clip is a safety, not a mastering tool. Effects implement `Effect`
 and start
@@ -87,9 +89,36 @@ approximate at the seam. A note starting at or after `Length` fails `Validate`.
 `Phrase.Notes` reads a step grid: `C4` a note, `Bb3,Db4,F4` a chord, `-` hold, `.` rest,
 `D5/E5` a bend or slide (over `Glide`), `F#2*3` a ratchet (three hits in one step, for hat
 rolls), `|` a bar line (needs no spaces), `!`/`?` accent and ghost. `Strum` rolls chords,
-`Swing` pushes every second step late, and `Humanize` adds reproducible drift.
+`Swing` pushes every second step late, and `Humanize` adds reproducible drift. Both count
+steps from the song's start (`At / Step`), so a line written in pieces swings and drifts
+as one.
 `Pattern("C2", "X . x o")` writes drum and strum lines.
 `MustKey` panics on a typo so a score fails when it's built.
+
+### Arrangements
+
+Songs are written as `synth.Arrangement` literals, the declarative form the studio
+(`specs/studio.md`) edits, and `Song()` compiles one to the `Song` the player and the
+bake take. `Tempo` and `Meter` make bars; `Sections` name the form in bars and give the
+song its length; `Loop` names the section the loop starts at. A `Track` is a `Part`
+whose notes are `Clip`s placed by `Play` at bars (from 1), `Times` over. A clip is a
+`Phrase`'s settings with `Step` in beats and `Bars`, one string per bar, each filling its
+bar exactly; `Hit` makes the bars a `Pattern` line (a drum, or a chord struck in a
+rhythm); `Notes` (in beats) hold what isn't on a grid; `Pedal` holds notes to the bar
+line. Song positions and durations inside effects (`Point.At`, `TapeStop`, `Delay.Time`,
+`Sidechain.Hits`) are beats, and `Sidechain.Key` names the tracks whose onsets duck it.
+`Arrangement.Validate` checks what a Song can't: unknown clips and buses, bars that
+don't fill their meter, overlapping plays.
+
+Keep arrangements literal: a field written as a helper call or a shared var is "custom"
+to the studio, shown but not editable. Patches modified from a `patches` constructor are
+the exception, written as a small func. Plays on one track may not overlap, so lines
+with different settings that sound together (a harpsichord's two hands) are tracks of
+their own.
+
+`studio.Arrange` drafts an arrangement from any Song (`make export`): bars folded into
+clips, grids inferred, patches matched to `patches` calls. It can't recover a humanized
+line's seed, so a draft is a start, not a port.
 
 ### Playing in a game
 
@@ -147,19 +176,18 @@ bakes a file per take.
 - `amberhours.go`, "Amber Hours": an original in Golden Brown's spirit with
   Interstellar's pipe organ, a D minor harpsichord waltz in `{3, 3, 3, 4}`: recorder,
   bass, brushed kit, a ticking clock, and organ pedal, ostinato, and chords opened by an
-  `AutoFilter` swell box. Its form is a string of sections (`"AAAABBAA"`), each part
-  writing its line pass by pass.
+  `AutoFilter` swell box, in sections A A B B A A after a two-pass intro.
 - `playasunrise.go`, "Playa Sunrise": the same `{3, 3, 3, 4}` lilt taken to a desert
   festival at dawn, E mixolydian and lightly swung: handpan keeping Golden Brown's
   interlock, tanpura and didgeridoo drones, djembes and shaker, sitar and bansuri
-  sharing a hook with meend bends, a phased pad, wind, and chimes. It shares `form`
-  with Amber Hours.
+  sharing a hook with meend bends, a phased pad, wind, and chimes. Its form is Amber
+  Hours'.
 - `lavalamp.go`, "Lava Lamp Sun": a full band (kit on a group bus, Höfner-style bass,
   double-tracked phased rhythm guitars, wah-fuzz lead with bends, Leslie organ, Juno
   arp). The reference for mixing; balance with `go run ./cmd/synth -id <id> -stems`,
   which reports each part's level while it's sounding.
 - `brighterdays.go`, "Brighter Days": Avicii-style progressive house. The reference for
-  arrangement dynamics: `Sidechain` keyed by `Onsets(kick notes)` so pumping follows the
+  arrangement dynamics: `Sidechain` keyed by the kick tracks so pumping follows the
   kick, `AutoFilter` automating a build, a riser, and a build quieter than its drop.
 - `smokesignal.go`, "Smoke Signal": 2015 festival trap. Half-time drums with ratcheted
   hat rolls, a gliding distorted 808, brass, and a `TapeStop` on the parts that should

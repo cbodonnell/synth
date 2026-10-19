@@ -1,8 +1,6 @@
 package songs
 
 import (
-	"strings"
-
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/patches"
 )
@@ -14,255 +12,606 @@ import (
 // A is a unison riff, bass and two guitars on the minor pentatonic with the blue
 // fifth; B lifts to phased major-seventh chords under a wah-fuzz solo and lands on
 // E7#9 to turn back into the riff. Tokens are eighths, except the arp's sixteenths.
-const (
-	llBeat  = 60.0 / 98
-	llStep  = llBeat / 2
-	llBar   = 4 * llBeat
-	llSwing = 0.18
-)
-
-const (
-	em9    = "E3,G3,B3,D4,F#4"
-	cmaj7  = "C3,G3,B3,E4"
-	b7     = "B2,D#3,A3,F#4"
-	bm7    = "B2,F#3,A3,D4"
-	am7    = "A2,E3,G3,C4"
-	d6     = "D3,A3,B3,F#4"
-	e7sh9  = "E3,G#3,D4,G4"
-	strum  = "X . x x . x . x |"
-	strum2 = "X . x x"
-)
-
-func rest(bars int) string { return strings.Repeat(". . . . . . . . | ", bars) }
-
-// arp runs five tones up and back down twice: one bar of sixteenths.
-func arp(a, b, c, d, e string) string {
-	half := strings.Join([]string{a, b, c, d, e, d, c, b}, " ")
-	return half + " " + half + " |"
-}
-
-func arpRest(bars int) string { return strings.Repeat(". ", 16*bars) }
-
-func eighths(seed uint64) synth.Phrase {
-	return synth.Phrase{Step: llStep, Swing: llSwing, Humanize: 0.006, Seed: seed}
-}
-
-func LavaLamp() synth.Song {
-	bass := eighths(10)
-	bass.Gate = 0.9
-	bassNotes := bass.Notes(
-		rest(2),
-		"C2 - - - - - G1 - |",
-		"B1 - - - A1 - F#1 - |",
-
-		"E1 - E2 E1 G1 . A1 Bb1 | B1 - . D2 . E2 D2 B1 |",
-		"E1 - E2 E1 G1 . A1 Bb1 | B1 - . D2 . E2 D2 B1 |",
-		"A1 - A2 A1 C2 . D2 Eb2 | E2 - . G2 . A2 G2 E2 |",
-		"E1 - E2 E1 G1 . A1 Bb1 | B1 - . D2 . E2 D2 B1 |",
-
-		"C2 - . C2 G1 - B1 C2 |",
-		"B1 - . B1 F#1 - A1 B1 |",
-		"A1 - . A1 E2 - G2 E2 |",
-		"D2 - . D2 A1 - D2 C#2 |",
-		"C2 - . C2 G1 - B1 C2 |",
-		"B1 - . B1 F#1 - A1 B1 |",
-		"A1 - E2 A1 D2 - A1 D2 |",
-		"E1 - - - . . B1 D2 |",
-	)
-
-	riff := []string{
-		"E2,B2,E3 - E3 E2 G2 . A2 Bb2 | B2,F#3,B3 - . D3 . E3 D3 B2 |",
-		"E2,B2,E3 - E3 E2 G2 . A2 Bb2 | B2,F#3,B3 - . D3 . E3 D3 B2 |",
-		"A2,E3,A3 - A3 A2 C3 . D3 Eb3 | E3,B3,E4 - . G3 . A3 G3 E3 |",
-		"E2,B2,E3 - E3 E2 G2 . A2 Bb2 | B2,F#3,B3 - . D3 . E3 D3 B2 |",
-	}
-	chords := []string{
-		synth.Pattern(cmaj7, strum), synth.Pattern(bm7, strum),
-		synth.Pattern(am7, strum), synth.Pattern(d6, strum),
-		synth.Pattern(cmaj7, strum), synth.Pattern(bm7, strum),
-		synth.Pattern(am7, strum2) + synth.Pattern(d6, strum2) + " |",
-		synth.Pattern(e7sh9, "X - - - . . . . |"),
-	}
-	guitar := func(seed uint64) []synth.Note {
-		p := eighths(seed)
-		p.Gate, p.Strum = 0.85, 0.011
-		lines := append([]string{rest(3), synth.Pattern(b7, "X - - - - - . . |")}, riff...)
-		return p.Notes(append(lines, chords...)...)
-	}
-
-	lead := eighths(30)
-	lead.Glide = 0.11
-	leadNotes := lead.Notes(
-		rest(4),
-		rest(6),
-		". . . . E5 G5 A5/B5 - |",
-		"- G5 E5 D5 E5 - . . |",
-
-		"G5 - - E5 G5/A5 - - G5 |",
-		"F#5 - D5 - B4 - D5/E5 - |",
-		"E5 - - - . C5 D5 E5 |",
-		"F#5/G5 - - - F#5 - D5 - |",
-		"B5/C6 - - - B5 G5 E5 G5 |",
-		"A5 - F#5 - D5 - E5/F#5 - |",
-		"E5 - D5 - C5 - A4 - |",
-		"G4/A4 - - - G4 E4 . . |",
-	)
-
-	organ := synth.Phrase{Step: llStep, Gate: 0.97, Vel: 0.7}.Notes(
-		em9+" - - - - - - - | - - - - - - - - |",
-		"C3,E3,G3,B3,E4 - - - - - - - |",
-		"B2,D#3,F#3,A3 - - - - - . . |",
-		rest(8),
-		"C3,E3,G3,B3 - - - - - - - |",
-		"B2,D3,F#3,A3 - - - - - - - |",
-		"A2,C3,E3,G3 - - - - - - - |",
-		"D3,F#3,A3,B3 - - - - - - - |",
-		"C3,E3,G3,B3 - - - - - - - |",
-		"B2,D3,F#3,A3 - - - - - - - |",
-		"A2,C3,E3,G3 - - - D3,F#3,A3,B3 - - - |",
-		e7sh9+" - - - . . . . |",
-	)
-
-	arpNotes := synth.Phrase{Step: llStep / 2, Swing: 0.12, Gate: 0.7, Vel: 0.75}.Notes(
-		arp("E4", "G4", "B4", "D5", "F#5"),
-		arp("E4", "G4", "B4", "D5", "F#5"),
-		arp("C4", "E4", "G4", "B4", "E5"),
-		arp("B3", "D#4", "F#4", "A4", "B4"),
-		arpRest(8),
-		arp("C4", "E4", "G4", "B4", "E5"),
-		arp("B3", "D4", "F#4", "A4", "D5"),
-		arp("A3", "C4", "E4", "G4", "C5"),
-		arp("D4", "F#4", "A4", "B4", "D5"),
-		arp("C4", "E4", "G4", "B4", "E5"),
-		arp("B3", "D4", "F#4", "A4", "D5"),
-		arp("A3", "C4", "E4", "G4", "C5"),
-		arpRest(1),
-	)
-
-	kit := eighths(40)
-	kit.Humanize = 0.003
-	hit := func(sound string, bars ...string) []synth.Note {
-		for i, b := range bars {
-			bars[i] = synth.Pattern(sound, b)
-		}
-		return kit.Notes(bars...)
-	}
-	stomp := "X . . x x . . . | X . . x x . x . |"
-	open := "X . . . x . . . | X . . x . . x . |"
-	backbeat := ". . X . . . X . |"
-	ghosted := ". o X . . o X . |"
-	hats := "x o x o x o x o |"
-
-	kick := hit("C2",
-		rest(2), "x . . . x . . . |", "x . . . . . . . |",
-		stomp, stomp, stomp, stomp,
-		open, open, open, "X . . . x . . . |", "X . . . . . . . |",
-	)
-	snare := hit("D2",
-		rest(3), ". . X . . . . . |",
-		strings.Repeat(backbeat, 7), ". . X . X x X X |",
-		strings.Repeat(ghosted, 7), rest(1),
-	)
-	hihat := hit("F#2",
-		rest(2), hats, hats,
-		strings.Repeat(hats, 8),
-	)
-	ride := hit("D#3",
-		rest(12),
-		strings.Repeat("X x x x X x x x |", 7), "X . . . . . . . |",
-	)
-	crash := hit("C#3",
-		rest(4), "X . . . . . . . |", rest(7), "X . . . . . . . |",
-	)
-	toms := kit.Notes(
-		rest(3), ". . . . A2 A2 E2 B1! |",
-		rest(15), ". . . . A2 E2 B1 B1! |",
-	)
-
-	snarePatch := patches.Snare()
-	snarePatch.Amp.Decay = 0.24
-	kickPatch := patches.Kick()
-	kickPatch.Oscs[0].Fixed = 55
-
-	room := func(l float64) synth.Send { return synth.Send{Bus: "room", Level: l} }
-	plate := func(l float64) synth.Send { return synth.Send{Bus: "plate", Level: l} }
-	echo := func(l float64) synth.Send { return synth.Send{Bus: "echo", Level: l} }
-
-	drum := func(name string, p synth.Patch, notes []synth.Note, pan, gain float64, sends ...synth.Send) synth.Part {
-		return synth.Part{Name: name, Patch: p, Notes: notes, Pan: pan, Gain: gain, Out: "drums", Sends: sends}
-	}
-
-	rhythm := func(name string, pan, rate float64, seed uint64) synth.Part {
-		return synth.Part{
-			Name: name, Patch: patches.RhythmGuitar(), Notes: guitar(seed), Pan: pan, Gain: 0.29,
-			Inserts: append(patches.GuitarAmp(6), synth.Phaser{Rate: rate, Depth: 1.3, Feedback: 0.45}),
-			Sends:   []synth.Send{room(0.12)},
-		}
-	}
-
-	return synth.Song{
-		ID:   "lavalamp",
-		Name: "Lava Lamp Sun",
-		Parts: []synth.Part{
-			drum("kick", kickPatch, kick, 0, 0.66, room(0.04)),
-			drum("snare", snarePatch, snare, 0.05, 1.3, room(0.2), plate(0.08)),
-			drum("hihat", patches.HiHat(), hihat, 0.3, 0.4),
-			drum("ride", patches.Cymbal(0.9), ride, -0.3, 0.48, room(0.1)),
-			drum("crash", patches.Cymbal(2.2), crash, -0.2, 0.65, room(0.2)),
-			drum("toms", patches.Tom(), toms, 0.1, 0.25, room(0.2)),
-			{
-				Name: "bass", Patch: patches.HofnerBass(), Notes: bassNotes, Gain: 0.63,
-				Inserts: []synth.Effect{synth.Compressor{Threshold: -20, Ratio: 4, Attack: 0.01, Makeup: 5}},
-				Sends:   []synth.Send{room(0.03)},
+var lavaLamp = synth.Arrangement{
+	ID: "lavalamp", Name: "Lava Lamp Sun",
+	Tempo: 98, Key: "E minor",
+	Sections: []synth.Section{{Name: "Intro", Bars: 4}, {Name: "A", Bars: 8}, {Name: "B", Bars: 8}},
+	Loop:     "A",
+	Tracks: []synth.Track{
+		{
+			Name: "kick", Patch: llKick(), Level: -3.6, Out: "drums",
+			Sends: []synth.Send{{Bus: "room", Level: -28}},
+			Clips: []synth.Clip{
+				{
+					Name:     "intro",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "C2",
+					Bars: []string{
+						"x . . . x . . .",
+						"x . . . . . . .",
+					},
+				},
+				{
+					Name:     "stomp",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "C2",
+					Bars: []string{
+						"X . . x x . . .",
+						"X . . x x . x .",
+					},
+				},
+				{
+					Name:     "open",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "C2",
+					Bars: []string{
+						"X . . . x . . .",
+						"X . . x . . x .",
+					},
+				},
+				{
+					Name:     "turn",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "C2",
+					Bars: []string{
+						"X . . . x . . .",
+						"X . . . . . . .",
+					},
+				},
 			},
-			rhythm("guitar left", -0.75, 0.23, 20),
-			rhythm("guitar right", 0.75, 0.31, 21),
-			{
-				Name: "lead guitar", Patch: patches.LeadGuitar(), Notes: leadNotes, Pan: 0.1, Gain: 0.25,
-				Inserts: patches.GuitarAmp(2),
-				Sends:   []synth.Send{echo(0.28), plate(0.22)},
+			Play: []synth.Play{{Clip: "intro", Bar: 3}, {Clip: "stomp", Bar: 5, Times: 4}, {Clip: "open", Bar: 13, Times: 3}, {Clip: "turn", Bar: 19}},
+		},
+		{
+			Name: "snare", Patch: llSnare(), Level: 2.3, Pan: 0.05, Out: "drums",
+			Sends: []synth.Send{{Bus: "room", Level: -14}, {Bus: "plate", Level: -21.9}},
+			Clips: []synth.Clip{
+				{
+					Name:     "intro",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "D2",
+					Bars:     []string{". . X . . . . ."},
+				},
+				{
+					Name:     "backbeat",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "D2",
+					Bars:     []string{". . X . . . X ."},
+				},
+				{
+					Name:     "fill",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "D2",
+					Bars:     []string{". . X . X x X X"},
+				},
+				{
+					Name:     "ghosted",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "D2",
+					Bars:     []string{". o X . . o X ."},
+				},
 			},
-			{
-				Name: "organ", Patch: patches.Organ(), Notes: organ, Gain: 0.31,
-				Sends: []synth.Send{plate(0.3)},
+			Play: []synth.Play{{Clip: "intro", Bar: 4}, {Clip: "backbeat", Bar: 5, Times: 7}, {Clip: "fill", Bar: 12}, {Clip: "ghosted", Bar: 13, Times: 7}},
+		},
+		{
+			Name: "hihat", Patch: patches.HiHat(), Level: -8, Pan: 0.3, Out: "drums",
+			Clips: []synth.Clip{
+				{
+					Name:     "eighths",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "F#2",
+					Bars:     []string{"x o x o x o x o"},
+				},
 			},
-			{
-				Name: "arp", Patch: patches.SynthArp(), Notes: arpNotes, Pan: -0.2, Gain: 1.75,
-				Inserts: []synth.Effect{synth.Phaser{Rate: 0.15, Depth: 1.8, Feedback: 0.6}},
-				Sends:   []synth.Send{echo(0.35), plate(0.2)},
+			Play: []synth.Play{{Clip: "eighths", Bar: 3, Times: 10}},
+		},
+		{
+			Name: "ride", Patch: patches.Cymbal(0.9), Level: -6.4, Pan: -0.3, Out: "drums",
+			Sends: []synth.Send{{Bus: "room", Level: -20}},
+			Clips: []synth.Clip{
+				{
+					Name:     "quarters",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "D#3",
+					Bars:     []string{"X x x x X x x x"},
+				},
+				{
+					Name:     "last",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "D#3",
+					Bars:     []string{"X . . . . . . ."},
+				},
+			},
+			Play: []synth.Play{{Clip: "quarters", Bar: 13, Times: 7}, {Clip: "last", Bar: 20}},
+		},
+		{
+			Name: "crash", Patch: patches.Cymbal(2.2), Level: -3.7, Pan: -0.2, Out: "drums",
+			Sends: []synth.Send{{Bus: "room", Level: -14}},
+			Clips: []synth.Clip{
+				{
+					Name:     "crash",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Hit:      "C#3",
+					Bars:     []string{"X . . . . . . ."},
+				},
+			},
+			Play: []synth.Play{{Clip: "crash", Bar: 5}, {Clip: "crash", Bar: 13}},
+		},
+		{
+			Name: "toms", Patch: patches.Tom(), Level: -12, Pan: 0.1, Out: "drums",
+			Sends: []synth.Send{{Bus: "room", Level: -14}},
+			Clips: []synth.Clip{
+				{
+					Name:     "intro",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Bars:     []string{". . . . A2 A2 E2 B1!"},
+				},
+				{
+					Name:     "turn",
+					Step:     0.5,
+					Swing:    0.18,
+					Humanize: 0.003,
+					Seed:     40,
+					Bars:     []string{". . . . A2 E2 B1 B1!"},
+				},
+			},
+			Play: []synth.Play{{Clip: "intro", Bar: 4}, {Clip: "turn", Bar: 20}},
+		},
+		{
+			Name: "bass", Patch: patches.HofnerBass(), Level: -4,
+			Inserts: []synth.Effect{synth.Compressor{Threshold: -20, Ratio: 4, Attack: 0.01, Makeup: 5}},
+			Sends:   []synth.Send{{Bus: "room", Level: -30.5}},
+			Clips: []synth.Clip{
+				{
+					Name:     "intro",
+					Step:     0.5,
+					Gate:     0.9,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     10,
+					Bars: []string{
+						"C2 - - - - - G1 -",
+						"B1 - - - A1 - F#1 -",
+					},
+				},
+				{
+					Name:     "E",
+					Step:     0.5,
+					Gate:     0.9,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     10,
+					Bars: []string{
+						"E1 - E2 E1 G1 . A1 Bb1",
+						"B1 - . D2 . E2 D2 B1",
+					},
+				},
+				{
+					Name:     "A",
+					Step:     0.5,
+					Gate:     0.9,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     10,
+					Bars: []string{
+						"A1 - A2 A1 C2 . D2 Eb2",
+						"E2 - . G2 . A2 G2 E2",
+					},
+				},
+				{
+					Name:     "B",
+					Step:     0.5,
+					Gate:     0.9,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     10,
+					Bars: []string{
+						"C2 - . C2 G1 - B1 C2",
+						"B1 - . B1 F#1 - A1 B1",
+						"A1 - . A1 E2 - G2 E2",
+						"D2 - . D2 A1 - D2 C#2",
+						"C2 - . C2 G1 - B1 C2",
+						"B1 - . B1 F#1 - A1 B1",
+						"A1 - E2 A1 D2 - A1 D2",
+						"E1 - - - . . B1 D2",
+					},
+				},
+			},
+			Play: []synth.Play{{Clip: "intro", Bar: 3}, {Clip: "E", Bar: 5, Times: 2}, {Clip: "A", Bar: 9}, {Clip: "E", Bar: 11}, {Clip: "B", Bar: 13}},
+		},
+		{
+			Name: "guitar left", Patch: patches.RhythmGuitar(), Level: -10.8, Pan: -0.75,
+			Inserts: append(patches.GuitarAmp(6), synth.Phaser{Rate: 0.23, Depth: 1.3, Feedback: 0.45}),
+			Sends:   []synth.Send{{Bus: "room", Level: -18.4}},
+			Clips: []synth.Clip{
+				{
+					Name:     "B7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Hit:      "B2,D#3,A3,F#4",
+					Bars:     []string{"X - - - - - . ."},
+				},
+				{
+					Name:     "E",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Bars: []string{
+						"E2,B2,E3 - E3 E2 G2 . A2 Bb2",
+						"B2,F#3,B3 - . D3 . E3 D3 B2",
+					},
+				},
+				{
+					Name:     "A",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Bars: []string{
+						"A2,E3,A3 - A3 A2 C3 . D3 Eb3",
+						"E3,B3,E4 - . G3 . A3 G3 E3",
+					},
+				},
+				{
+					Name:     "Cmaj7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Hit:      "C3,G3,B3,E4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "Bm7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Hit:      "B2,F#3,A3,D4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "Am7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Hit:      "A2,E3,G3,C4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "D6",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Hit:      "D3,A3,B3,F#4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "Am7 D6",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Bars:     []string{"A2,E3,G3,C4! . A2,E3,G3,C4 A2,E3,G3,C4 D3,A3,B3,F#4! . D3,A3,B3,F#4 D3,A3,B3,F#4"},
+				},
+				{
+					Name:     "E7#9",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     20,
+					Hit:      "E3,G#3,D4,G4",
+					Bars:     []string{"X - - - . . . ."},
+				},
+			},
+			Play: []synth.Play{
+				{Clip: "B7", Bar: 4},
+				{Clip: "E", Bar: 5, Times: 2},
+				{Clip: "A", Bar: 9},
+				{Clip: "E", Bar: 11},
+				{Clip: "Cmaj7", Bar: 13},
+				{Clip: "Bm7", Bar: 14},
+				{Clip: "Am7", Bar: 15},
+				{Clip: "D6", Bar: 16},
+				{Clip: "Cmaj7", Bar: 17},
+				{Clip: "Bm7", Bar: 18},
+				{Clip: "Am7 D6", Bar: 19},
+				{Clip: "E7#9", Bar: 20},
 			},
 		},
-		Buses: []synth.Bus{
-			// Squashed and saturated as a kit, the way a 70s record or Kevin Parker's drums are.
-			{Name: "drums", Effects: []synth.Effect{
-				synth.EQ{Bands: []synth.Band{
-					{Kind: synth.LowShelf, Freq: 90, Gain: 3},
-					{Kind: synth.Peak, Freq: 450, Gain: -4, Q: 0.9},
-					{Kind: synth.HighCut, Freq: 9000},
+		{
+			Name: "guitar right", Patch: patches.RhythmGuitar(), Level: -10.8, Pan: 0.75,
+			Inserts: append(patches.GuitarAmp(6), synth.Phaser{Rate: 0.31, Depth: 1.3, Feedback: 0.45}),
+			Sends:   []synth.Send{{Bus: "room", Level: -18.4}},
+			Clips: []synth.Clip{
+				{
+					Name:     "B7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Hit:      "B2,D#3,A3,F#4",
+					Bars:     []string{"X - - - - - . ."},
+				},
+				{
+					Name:     "E",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Bars: []string{
+						"E2,B2,E3 - E3 E2 G2 . A2 Bb2",
+						"B2,F#3,B3 - . D3 . E3 D3 B2",
+					},
+				},
+				{
+					Name:     "A",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Bars: []string{
+						"A2,E3,A3 - A3 A2 C3 . D3 Eb3",
+						"E3,B3,E4 - . G3 . A3 G3 E3",
+					},
+				},
+				{
+					Name:     "Cmaj7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Hit:      "C3,G3,B3,E4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "Bm7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Hit:      "B2,F#3,A3,D4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "Am7",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Hit:      "A2,E3,G3,C4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "D6",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Hit:      "D3,A3,B3,F#4",
+					Bars:     []string{"X . x x . x . x"},
+				},
+				{
+					Name:     "Am7 D6",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Bars:     []string{"A2,E3,G3,C4! . A2,E3,G3,C4 A2,E3,G3,C4 D3,A3,B3,F#4! . D3,A3,B3,F#4 D3,A3,B3,F#4"},
+				},
+				{
+					Name:     "E7#9",
+					Step:     0.5,
+					Gate:     0.85,
+					Strum:    0.011,
+					Swing:    0.18,
+					Humanize: 0.006,
+					Seed:     21,
+					Hit:      "E3,G#3,D4,G4",
+					Bars:     []string{"X - - - . . . ."},
+				},
+			},
+			Play: []synth.Play{
+				{Clip: "B7", Bar: 4},
+				{Clip: "E", Bar: 5, Times: 2},
+				{Clip: "A", Bar: 9},
+				{Clip: "E", Bar: 11},
+				{Clip: "Cmaj7", Bar: 13},
+				{Clip: "Bm7", Bar: 14},
+				{Clip: "Am7", Bar: 15},
+				{Clip: "D6", Bar: 16},
+				{Clip: "Cmaj7", Bar: 17},
+				{Clip: "Bm7", Bar: 18},
+				{Clip: "Am7 D6", Bar: 19},
+				{Clip: "E7#9", Bar: 20},
+			},
+		},
+		{
+			Name: "lead guitar", Patch: patches.LeadGuitar(), Level: -12, Pan: 0.1,
+			Inserts: patches.GuitarAmp(2),
+			Sends:   []synth.Send{{Bus: "echo", Level: -11.1}, {Bus: "plate", Level: -13.2}},
+			Clips: []synth.Clip{
+				{Name: "pickup", Step: 0.5, Swing: 0.18, Glide: 0.11, Humanize: 0.006, Seed: 30, Bars: []string{
+					". . . . E5 G5 A5/B5 -",
+					"- G5 E5 D5 E5 - . .",
 				}},
-				synth.Compressor{Threshold: -22, Ratio: 5, Attack: 0.004, Release: 0.09, Makeup: 6},
-				synth.Drive{Amount: 2, Tone: 8000, Mix: 0.35},
-			}, Gain: 0.6},
-			{Name: "room", Effects: []synth.Effect{synth.Reverb{Size: 0.45, Damp: 0.6, PreDelay: 0.008}}},
-			{Name: "plate", Effects: []synth.Effect{synth.Reverb{Size: 0.78, Damp: 0.3, PreDelay: 0.025}}},
-			{Name: "echo", Effects: []synth.Effect{
-				synth.Delay{Time: 0.75 * llBeat, Feedback: 0.38, Damp: 2800, PingPong: true},
-				synth.Reverb{Size: 0.5, Damp: 0.5, Mix: 0.3},
-			}},
+				{Name: "solo", Step: 0.5, Swing: 0.18, Glide: 0.11, Humanize: 0.006, Seed: 30, Bars: []string{
+					"G5 - - E5 G5/A5 - - G5",
+					"F#5 - D5 - B4 - D5/E5 -",
+					"E5 - - - . C5 D5 E5",
+					"F#5/G5 - - - F#5 - D5 -",
+					"B5/C6 - - - B5 G5 E5 G5",
+					"A5 - F#5 - D5 - E5/F#5 -",
+					"E5 - D5 - C5 - A4 -",
+					"G4/A4 - - - G4 E4 . .",
+				}},
+			},
+			Play: []synth.Play{{Clip: "pickup", Bar: 11}, {Clip: "solo", Bar: 13}},
 		},
-		Master: []synth.Effect{
+		{
+			Name: "organ", Patch: patches.Organ(), Level: -10.2,
+			Sends: []synth.Send{{Bus: "plate", Level: -10.5}},
+			Clips: []synth.Clip{
+				{Name: "intro", Step: 0.5, Gate: 0.97, Vel: 0.7, Bars: []string{
+					"E3,G3,B3,D4,F#4 - - - - - - -",
+					"- - - - - - - -",
+					"C3,E3,G3,B3,E4 - - - - - - -",
+					"B2,D#3,F#3,A3 - - - - - . .",
+				}},
+				{Name: "B", Step: 0.5, Gate: 0.97, Vel: 0.7, Bars: []string{
+					"C3,E3,G3,B3 - - - - - - -",
+					"B2,D3,F#3,A3 - - - - - - -",
+					"A2,C3,E3,G3 - - - - - - -",
+					"D3,F#3,A3,B3 - - - - - - -",
+					"C3,E3,G3,B3 - - - - - - -",
+					"B2,D3,F#3,A3 - - - - - - -",
+					"A2,C3,E3,G3 - - - D3,F#3,A3,B3 - - -",
+					"E3,G#3,D4,G4 - - - . . . .",
+				}},
+			},
+			Play: []synth.Play{{Clip: "intro", Bar: 1}, {Clip: "B", Bar: 13}},
+		},
+		{
+			Name: "arp", Patch: patches.SynthArp(), Level: 4.9, Pan: -0.2,
+			Inserts: []synth.Effect{synth.Phaser{Rate: 0.15, Depth: 1.8, Feedback: 0.6}},
+			Sends:   []synth.Send{{Bus: "echo", Level: -9.1}, {Bus: "plate", Level: -14}},
+			Clips: []synth.Clip{
+				{Name: "intro", Step: 0.25, Gate: 0.7, Vel: 0.75, Swing: 0.12, Bars: []string{
+					"E4 G4 B4 D5 F#5 D5 B4 G4 E4 G4 B4 D5 F#5 D5 B4 G4",
+					"E4 G4 B4 D5 F#5 D5 B4 G4 E4 G4 B4 D5 F#5 D5 B4 G4",
+					"C4 E4 G4 B4 E5 B4 G4 E4 C4 E4 G4 B4 E5 B4 G4 E4",
+					"B3 D#4 F#4 A4 B4 A4 F#4 D#4 B3 D#4 F#4 A4 B4 A4 F#4 D#4",
+				}},
+				{Name: "B", Step: 0.25, Gate: 0.7, Vel: 0.75, Swing: 0.12, Bars: []string{
+					"C4 E4 G4 B4 E5 B4 G4 E4 C4 E4 G4 B4 E5 B4 G4 E4",
+					"B3 D4 F#4 A4 D5 A4 F#4 D4 B3 D4 F#4 A4 D5 A4 F#4 D4",
+					"A3 C4 E4 G4 C5 G4 E4 C4 A3 C4 E4 G4 C5 G4 E4 C4",
+					"D4 F#4 A4 B4 D5 B4 A4 F#4 D4 F#4 A4 B4 D5 B4 A4 F#4",
+					"C4 E4 G4 B4 E5 B4 G4 E4 C4 E4 G4 B4 E5 B4 G4 E4",
+					"B3 D4 F#4 A4 D5 A4 F#4 D4 B3 D4 F#4 A4 D5 A4 F#4 D4",
+					"A3 C4 E4 G4 C5 G4 E4 C4 A3 C4 E4 G4 C5 G4 E4 C4",
+				}},
+			},
+			Play: []synth.Play{{Clip: "intro", Bar: 1}, {Clip: "B", Bar: 13}},
+		},
+	},
+	Buses: []synth.Bus{
+		// Squashed and saturated as a kit, the way a 70s record or Kevin Parker's drums are.
+		{Name: "drums", Level: -4.4, Effects: []synth.Effect{
 			synth.EQ{Bands: []synth.Band{
-				{Kind: synth.LowCut, Freq: 30},
-				{Kind: synth.HighShelf, Freq: 10000, Gain: -1.5},
+				{Kind: synth.LowShelf, Freq: 90, Gain: 3},
+				{Kind: synth.Peak, Freq: 450, Gain: -4, Q: 0.9},
+				{Kind: synth.HighCut, Freq: 9000},
 			}},
-			synth.Drive{Amount: 0.6, Mix: 0.25},
-			synth.Compressor{Threshold: -14, Ratio: 2.5, Attack: 0.02, Release: 0.25, Makeup: 0.8},
-			synth.Limiter{},
-		},
-		Length:    20 * llBar,
-		Loop:      true,
-		LoopStart: 4 * llBar,
-		Meter:     synth.Meter{Beat: llBeat},
-		Target:    -14,
-	}
+			synth.Compressor{Threshold: -22, Ratio: 5, Attack: 0.004, Release: 0.09, Makeup: 6},
+			synth.Drive{Amount: 2, Tone: 8000, Mix: 0.35},
+		}},
+		{Name: "room", Effects: []synth.Effect{synth.Reverb{Size: 0.45, Damp: 0.6, PreDelay: 0.008}}},
+		{Name: "plate", Effects: []synth.Effect{synth.Reverb{Size: 0.78, Damp: 0.3, PreDelay: 0.025}}},
+		{Name: "echo", Effects: []synth.Effect{
+			synth.Delay{Time: 0.75, Feedback: 0.38, Damp: 2800, PingPong: true},
+			synth.Reverb{Size: 0.5, Damp: 0.5, Mix: 0.3},
+		}},
+	},
+	Master: []synth.Effect{
+		synth.EQ{Bands: []synth.Band{
+			{Kind: synth.LowCut, Freq: 30},
+			{Kind: synth.HighShelf, Freq: 10000, Gain: -1.5},
+		}},
+		synth.Drive{Amount: 0.6, Mix: 0.25},
+		synth.Compressor{Threshold: -14, Ratio: 2.5, Attack: 0.02, Release: 0.25, Makeup: 0.8},
+		synth.Limiter{},
+	},
+	Target: -14,
+}
+
+func LavaLamp() synth.Song { return lavaLamp.Song() }
+
+func llKick() synth.Patch {
+	p := patches.Kick()
+	p.Oscs[0].Fixed = 55
+	return p
+}
+
+func llSnare() synth.Patch {
+	p := patches.Snare()
+	p.Amp.Decay = 0.24
+	return p
 }

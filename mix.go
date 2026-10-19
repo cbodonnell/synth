@@ -12,7 +12,7 @@ type Part struct {
 	Name    string // also seeds its noise, so renaming a part changes its texture
 	Patch   Patch
 	Notes   []Note
-	Gain    float64 // 0 means 1
+	Level   float64 // dB; 0 is unity
 	Pan     float64 // -1..1
 	Inserts []Effect
 	Sends   []Send
@@ -24,14 +24,14 @@ type Part struct {
 
 type Send struct {
 	Bus   string
-	Level float64
+	Level float64 // dB; 0 is unity
 }
 
 // Bus is a shared effect return, such as one reverb that several parts send to.
 type Bus struct {
 	Name    string
 	Effects []Effect
-	Gain    float64 // 0 means 1
+	Level   float64 // dB; 0 is unity
 }
 
 // Song is a finished piece, or a one-shot sound effect: anything that renders.
@@ -81,13 +81,6 @@ type Variation struct {
 func Take(s Song, n int) Song {
 	s.take = n
 	return s
-}
-
-func gainOr1(g float64) float32 {
-	if g == 0 {
-		return 1
-	}
-	return float32(g)
 }
 
 // end is when the last note falls silent, ignoring effect tails.
@@ -192,7 +185,7 @@ func mixdown(s Song, parts []Part, n int) Stereo {
 		buses[b.Name] = NewStereo(n)
 	}
 	for i, p := range parts {
-		g := gainOr1(p.Gain)
+		g := float32(dbToGain(p.Level))
 		dst := master
 		if bus, ok := buses[p.Out]; ok {
 			dst = bus
@@ -200,7 +193,7 @@ func mixdown(s Song, parts []Part, n int) Stereo {
 		dst.add(rendered[i], g)
 		for _, send := range p.Sends {
 			if bus, ok := buses[send.Bus]; ok {
-				bus.add(rendered[i], g*float32(send.Level))
+				bus.add(rendered[i], g*float32(dbToGain(send.Level)))
 			}
 		}
 	}
@@ -209,7 +202,7 @@ func mixdown(s Song, parts []Part, n int) Stereo {
 		for _, e := range b.Effects {
 			e.Process(buf)
 		}
-		master.add(buf, gainOr1(b.Gain))
+		master.add(buf, float32(dbToGain(b.Level)))
 	}
 	blockDC(master)
 	for _, e := range s.Master {

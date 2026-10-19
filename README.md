@@ -15,19 +15,26 @@ if pos, ok := mixer.Beat(); ok && pos.Beat == 0 {
 mixer.Play(synth.Hit("coin", patches.Coin(), synth.MustKey("E6"), 0.1))
 ```
 
-A song is parts playing notes through patches:
+A song is an arrangement: tracks of clips played at bars, through patches and buses.
 
 ```go
-riff := synth.Phrase{Step: 0.18, Strum: 0.007}.Notes(
-	"Bb2 - F3 - Bb2 - | . Bb3,Db4,F4 . Bb3,Db4,F4",
-)
-song := synth.Song{
-	ID:     "riff",
-	Parts:  []synth.Part{{Name: "keys", Patch: patches.Harpsichord(), Notes: riff,
-		Sends: []synth.Send{{Bus: "room", Level: 0.2}}}},
-	Buses:  []synth.Bus{{Name: "room", Effects: []synth.Effect{synth.Reverb{Size: 0.5}}}},
-	Length: 1.8, Loop: true,
+var riff = synth.Arrangement{
+	ID: "riff", Tempo: 116, Meter: []int{3},
+	Sections: []synth.Section{{Name: "A", Bars: 4}},
+	Loop:     "A",
+	Tracks: []synth.Track{{
+		Name: "keys", Patch: patches.Harpsichord(),
+		Sends: []synth.Send{{Bus: "room", Level: -14}},
+		Clips: []synth.Clip{{Name: "vamp", Step: 0.5, Strum: 0.007, Bars: []string{
+			"Bb2 - F3 - Bb2 -",
+			". Bb3,Db4,F4 . Bb3,Db4,F4 . .",
+		}}},
+		Play: []synth.Play{{Clip: "vamp", Bar: 1, Times: 2}},
+	}},
+	Buses: []synth.Bus{{Name: "room", Effects: []synth.Effect{synth.Reverb{Size: 0.5}}}},
 }
+
+mixer.PlayMusic(riff.Song())
 ```
 
 Sound design covers band-limited saw and pulse (with PWM), triangle, sine with FM, noise,
@@ -50,5 +57,6 @@ p := player.New(player.Baked(os.DirFS("assets/baked")))
 ```sh
 make play ID=goldenbrown   # render, print the envelope, play
 make score ID=goldenbrown  # piano roll
+make export ID=goldenbrown # a song as a draft Arrangement
 make demo                  # the Ebiten demo
 ```

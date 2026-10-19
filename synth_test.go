@@ -32,7 +32,7 @@ func busySong() Song {
 			Name: "p", Patch: p,
 			Notes:   Phrase{Step: 0.1, Humanize: 0.01}.Notes("C4 E4,G4 - . C5"),
 			Inserts: []Effect{Chorus{}, Drive{Amount: 2}},
-			Sends:   []Send{{Bus: "verb", Level: 0.5}},
+			Sends:   []Send{{Bus: "verb", Level: -6}},
 		}},
 		Buses:  []Bus{{Name: "verb", Effects: []Effect{Reverb{Size: 0.4}, Delay{Time: 0.05, Feedback: 0.4}}}},
 		Master: []Effect{Compressor{Threshold: -12}},
@@ -49,7 +49,7 @@ func TestRenderEmptySongIsEmpty(t *testing.T) {
 
 func TestRenderStaysInRange(t *testing.T) {
 	s := busySong()
-	s.Parts[0].Gain = 50
+	s.Parts[0].Level = 34
 	out := Render(s)
 	require.NotZero(t, out.Len())
 	assert.LessOrEqual(t, out.Peak(), float32(1))

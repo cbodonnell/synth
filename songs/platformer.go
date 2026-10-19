@@ -1,6 +1,7 @@
 package songs
 
 import (
+	"math"
 	"slices"
 
 	"github.com/cbodonnell/synth"
@@ -54,8 +55,8 @@ func pfRepeat(s synth.Song, v synth.Variation, voices int) synth.Song {
 	return s
 }
 
-// pfSound mixes layers through a shared room and a limiter, so every effect lands at the
-// same loudness however its layers stack.
+// pfSound mixes layers through a shared room, sent to at room dB, and a limiter, so every
+// effect lands at the same loudness however its layers stack.
 func pfSound(id string, room float64, parts ...synth.Part) synth.Song {
 	s := synth.Song{
 		ID:     id,
@@ -63,7 +64,7 @@ func pfSound(id string, room float64, parts ...synth.Part) synth.Song {
 		Parts:  parts,
 		Master: []synth.Effect{synth.Limiter{Ceiling: -1}},
 	}
-	if room > 0 {
+	if room != dry {
 		s.Buses = []synth.Bus{{Name: "room", Effects: []synth.Effect{
 			synth.Reverb{Size: 0.25, Damp: 0.6, PreDelay: 0.01},
 		}}}
@@ -73,6 +74,8 @@ func pfSound(id string, room float64, parts ...synth.Part) synth.Song {
 	}
 	return s
 }
+
+var dry = math.Inf(-1)
 
 func pfLayer(name string, p synth.Patch, notes ...synth.Note) synth.Part {
 	return synth.Part{Name: name, Patch: p, Notes: notes}
@@ -132,7 +135,7 @@ func pfJump() synth.Song {
 	}
 	puff := pfNoise(synth.BandPass, 1400, 0.3, 0.05)
 	puff.Gain = 0.25
-	return pfSound("jump", 0,
+	return pfSound("jump", dry,
 		pfLayer("blip", blip, synth.Note{Key: synth.MustKey("A4"), Dur: 0.08, Slide: 4}),
 		pfLayer("puff", puff, pfNote(0, "C4", 0.03)),
 	)
@@ -151,7 +154,7 @@ func pfDoubleJump() synth.Song {
 		Amp:  synth.Envelope{Attack: 0.01, Decay: 0.22, Release: 0.05},
 		Gain: 0.2,
 	}
-	return pfSound("doublejump", 0.15,
+	return pfSound("doublejump", -16.5,
 		pfLayer("whoosh", whoosh, pfNote(0, "C4", 0.2)),
 		pfLayer("whistle", whistle, synth.Note{Key: synth.MustKey("E5"), Dur: 0.15, Slide: 12, SlideTime: 0.15}),
 	)
@@ -163,7 +166,7 @@ func pfLand() synth.Song {
 	thud.Gain = 0.3
 	scuff := pfNoise(synth.LowPass, 900, 0.1, 0.05)
 	scuff.Gain = 0.2
-	return pfSound("land", 0,
+	return pfSound("land", dry,
 		pfLayer("thud", thud, pfNote(0, "C2", 0.05)),
 		pfLayer("scuff", scuff, pfNote(0.004, "C4", 0.03)),
 	)
@@ -179,7 +182,7 @@ func pfClimb() synth.Song {
 	}
 	grain := pfNoise(synth.BandPass, 2500, 0.4, 0.015)
 	grain.Gain = 0.25
-	return pfSound("climb", 0,
+	return pfSound("climb", dry,
 		pfLayer("tock", tock, pfNote(0, "C4", 0.02)),
 		pfLayer("grain", grain, pfNote(0, "C4", 0.01)),
 	)
@@ -195,7 +198,7 @@ func pfSwing() synth.Song {
 	edge := pfNoise(synth.HighPass, 5000, 0.3, 0.08)
 	edge.Amp.Attack = 0.04
 	edge.Gain = 0.15
-	return pfSound("swing", 0,
+	return pfSound("swing", dry,
 		pfLayer("air", air, pfNote(0, "C4", 0.1)),
 		pfLayer("edge", edge, pfNote(0, "C4", 0.05)),
 	)
@@ -223,7 +226,7 @@ func pfStrike() []synth.Part {
 
 // Landing a blow on a monster: crack, slap, and weight.
 func pfHit() synth.Song {
-	return pfSound("hit", 0, pfStrike()...)
+	return pfSound("hit", dry, pfStrike()...)
 }
 
 // A critical: the same blow with a metallic ring and a sparkle on top of it.
@@ -235,7 +238,7 @@ func pfCrit() synth.Song {
 		Gain:     0.25,
 	}
 	sparkle := synth.Phrase{At: 0.03, Step: 0.035, Gate: 0.6, Vel: 0.6}.Notes("B6 E7 B7")
-	return pfSound("crit", 0.2, append(pfStrike(),
+	return pfSound("crit", -14, append(pfStrike(),
 		pfLayer("ring", ring, pfNote(0, "E6", 0.05)),
 		pfLayer("sparkle", pfChime(0.25), sparkle...),
 	)...)
@@ -257,7 +260,7 @@ func pfMagic() synth.Song {
 	crackle := pfNoise(synth.HighPass, 3000, 0.2, 0.2)
 	crackle.LFOs = []synth.LFO{{Target: synth.Tremolo, Shape: synth.RandomShape, Rate: 60, Depth: 0.9}}
 	crackle.Gain = 0.4
-	s := pfSound("magic", 0.2,
+	s := pfSound("magic", -14,
 		pfLayer("zap", zap, pfNote(0, "A4", 0.15)),
 		pfLayer("crackle", crackle, pfNote(0.01, "C4", 0.15)),
 	)
@@ -276,7 +279,7 @@ func pfHurt() synth.Song {
 	}
 	thud := pfThump(90, 12, 0.1)
 	thud.Gain = 0.4
-	s := pfSound("hurt", 0,
+	s := pfSound("hurt", dry,
 		pfLayer("ouch", ouch, synth.Note{Key: synth.MustKey("D5"), Dur: 0.2, Slide: -9}),
 		pfLayer("thud", thud, pfNote(0, "C2", 0.05)),
 	)
@@ -302,7 +305,7 @@ func pfMonsterDie() synth.Song {
 	poof.Filter.Env = synth.Envelope{Decay: 0.3}
 	poof.Filter.EnvAmount = 1
 	poof.Gain = 0.6
-	return pfSound("monsterdie", 0.25,
+	return pfSound("monsterdie", -12,
 		pfLayer("squeal", squeal, synth.Note{Key: synth.MustKey("G4"), Dur: 0.3, Slide: -17}),
 		pfLayer("poof", poof, pfNote(0.08, "C4", 0.25)),
 	)
@@ -317,7 +320,7 @@ func pfDeath() synth.Song {
 	dust := pfNoise(synth.LowPass, 700, 0.1, 0.3)
 	dust.Gain = 1.5
 	const landing = 1.05
-	return pfSound("death", 0.3,
+	return pfSound("death", -10.5,
 		pfLayer("fall", pfSquare(), fall...),
 		pfLayer("tomb", tomb, pfNote(landing, "C2", 0.1)),
 		pfLayer("dust", dust, pfNote(landing+0.005, "C4", 0.2)),
@@ -332,7 +335,7 @@ func pfPickup() synth.Song {
 		Amp:   synth.Envelope{Attack: 0.002, Decay: 0.12, Release: 0.03},
 		Gain:  0.35,
 	}
-	return pfSound("pickup", 0,
+	return pfSound("pickup", dry,
 		pfLayer("bloop", bloop, synth.Phrase{Step: 0.055, Gate: 0.8}.Notes("E5 B5")...),
 	)
 }
@@ -346,7 +349,7 @@ func pfMeso() synth.Song {
 		Gain:     0.3,
 	}
 	jingle := synth.Phrase{At: 0.09, Step: 0.028, Vel: 0.35, Humanize: 0.01, Seed: 7}.Notes("F#7 D7 A7 E7")
-	return pfSound("meso", 0,
+	return pfSound("meso", dry,
 		pfLayer("ping", ping, synth.Phrase{Step: 0.06}.Notes("B6 E7 -")...),
 		pfLayer("jingle", ping, jingle...),
 	)
@@ -369,7 +372,7 @@ func pfDrop() synth.Song {
 		gap *= 0.6
 		vel *= 0.6
 	}
-	return pfSound("drop", 0, pfLayer("plink", plink, bounces...))
+	return pfSound("drop", dry, pfLayer("plink", plink, bounces...))
 }
 
 // Drinking a potion: three rising glugs, then a warm sparkle as it heals.
@@ -383,7 +386,7 @@ func pfPotion() synth.Song {
 	}
 	glugs := synth.Phrase{Step: 0.09, Gate: 0.5}.Notes("C4 D4 F4")
 	heal := synth.Phrase{At: 0.3, Step: 0.05, Vel: 0.6}.Notes("C6 E6 G6 C7 - -")
-	return pfSound("potion", 0.25,
+	return pfSound("potion", -12,
 		pfLayer("glug", glug, glugs...),
 		pfLayer("heal", pfChime(0.4), heal...),
 	)
@@ -403,7 +406,7 @@ func pfBuff() synth.Song {
 		Gain: 0.12,
 	}
 	shimmer := synth.Phrase{At: 0.4, Step: 0.03, Vel: 0.5}.Notes("G6 C7 E7 G7 C8 - -")
-	s := pfSound("buff", 0.35,
+	s := pfSound("buff", -9.1,
 		pfLayer("rise", rise, synth.Note{Key: synth.MustKey("C4"), Dur: 0.5, Slide: 12}),
 		pfLayer("shimmer", pfChime(0.35), shimmer...),
 	)
@@ -432,7 +435,7 @@ func pfPortal() synth.Song {
 		{Target: synth.AutoPan, Rate: 3, Depth: 0.6},
 	}
 	swirl.Gain = 0.55
-	s := pfSound("portal", 0.4,
+	s := pfSound("portal", -8,
 		pfLayer("warp", warp, synth.Note{Key: synth.MustKey("C3"), Dur: 0.5, Slide: 24}),
 		pfLayer("swirl", swirl, pfNote(0, "C4", 0.4)),
 	)
@@ -454,15 +457,15 @@ func pfLevelUp() synth.Song {
 	pad := patches.OctaveSynth()
 	pad.Amp.Attack = 0.05
 	pad.Amp.Release = 0.6
-	s := pfSound("levelup", 0.35,
+	s := pfSound("levelup", -9.1,
 		pfLayer("lead", pfSquare(), lead...),
 		pfLayer("chord", pad, chord...),
-		synth.Part{Name: "bells", Patch: pfChime(1.2), Notes: bells, Gain: 0.6},
+		synth.Part{Name: "bells", Patch: pfChime(1.2), Notes: bells, Level: -4.4},
 		pfLayer("sparkle", pfChime(0.4), sparkle...),
 		pfLayer("sub", sub, pfNote(6*step, "C2", 0.3)),
 	)
-	s.Parts[1].Gain = 1.4
-	s.Parts[0].Sends = append(s.Parts[0].Sends, synth.Send{Bus: "echo", Level: 0.25})
+	s.Parts[1].Level = 2.9
+	s.Parts[0].Sends = append(s.Parts[0].Sends, synth.Send{Bus: "echo", Level: -12})
 	s.Buses = append(s.Buses, synth.Bus{Name: "echo", Effects: []synth.Effect{
 		synth.Delay{Time: 3 * step, Feedback: 0.3, Damp: 4000, PingPong: true},
 	}})
@@ -476,11 +479,11 @@ func pfQuest() synth.Song {
 	pad := patches.OctaveSynth()
 	pad.Amp.Attack = 0.03
 	pad.Amp.Release = 0.5
-	s := pfSound("quest", 0.3,
+	s := pfSound("quest", -10.5,
 		pfLayer("bells", pfChime(0.8), bells...),
 		pfLayer("under", pad, under...),
 	)
-	s.Parts[1].Gain = 1.8
+	s.Parts[1].Level = 5.1
 	return s
 }
 
@@ -492,7 +495,7 @@ func pfClick() synth.Song {
 		Sweep: synth.Sweep{Semis: 4, Time: 0.004},
 		Gain:  0.4,
 	}
-	return pfSound("click", 0, pfLayer("tick", tick, pfNote(0, "C4", 0.01)))
+	return pfSound("click", dry, pfLayer("tick", tick, pfNote(0, "C4", 0.01)))
 }
 
 func pfTwoTone(id, notes string) synth.Song {
@@ -501,7 +504,7 @@ func pfTwoTone(id, notes string) synth.Song {
 		Amp:  synth.Envelope{Attack: 0.001, Decay: 0.08, Release: 0.02},
 		Gain: 0.3,
 	}
-	return pfSound(id, 0, pfLayer("tone", tone, synth.Phrase{Step: 0.045, Gate: 0.8}.Notes(notes)...))
+	return pfSound(id, dry, pfLayer("tone", tone, synth.Phrase{Step: 0.045, Gate: 0.8}.Notes(notes)...))
 }
 
 // A window opening, and closing: the same two tones, up and then down.
@@ -516,7 +519,7 @@ func pfPop() synth.Song {
 		Amp:   synth.Envelope{Attack: 0.001, Decay: 0.06, Release: 0.01},
 		Gain:  0.45,
 	}
-	return pfSound("pop", 0, pfLayer("pop", pop, pfNote(0, "A5", 0.03)))
+	return pfSound("pop", dry, pfLayer("pop", pop, pfNote(0, "A5", 0.03)))
 }
 
 // Not allowed: inventory full, not enough mana. Two low buzzes, the second a step down.
@@ -527,5 +530,5 @@ func pfError() synth.Song {
 		Filter: synth.Filter{Cutoff: 1400, Resonance: 0.2},
 		Gain:   0.2,
 	}
-	return pfSound("error", 0, pfLayer("buzz", buzz, synth.Phrase{Step: 0.1, Gate: 0.75}.Notes("E3 C3")...))
+	return pfSound("error", dry, pfLayer("buzz", buzz, synth.Phrase{Step: 0.1, Gate: 0.75}.Notes("E3 C3")...))
 }

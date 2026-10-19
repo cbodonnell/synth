@@ -93,7 +93,7 @@ func TestBakeIsSampleExactAndTracksStaleness(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, stale)
 
-	shot.Parts[0].Gain = 0.5
+	shot.Parts[0].Level = -6
 	stale, err = Stale(os.DirFS(dir), loop, shot, tone("new", false))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"new", "shot"}, stale)

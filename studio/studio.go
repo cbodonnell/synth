@@ -1,6 +1,7 @@
 // Package studio is the authoring loop as a command any game can wrap around its own
 // songs and sounds: render one to a wav, print its envelope, and play it; or print its
-// piano roll, or each part's level; or bake them all for shipping.
+// piano roll, or each part's level, or a draft of it as an Arrangement; or bake them all
+// for shipping.
 package studio
 
 import (
@@ -28,6 +29,8 @@ func Main(songs, sounds []synth.Song) {
 	score := flag.Bool("score", false, "print a piano roll instead of rendering")
 	stems := flag.Bool("stems", false, "print each part's level instead of rendering the mix")
 	bakeDir := flag.String("bake", "", "bake every song and sound into this directory")
+	export := flag.Bool("export", false, "print a first draft of the song as a synth.Arrangement")
+	pkg := flag.String("package", "songs", "the package an export is written for")
 	flag.Parse()
 
 	lookup := func(id string) (synth.Song, bool) {
@@ -65,6 +68,14 @@ func Main(songs, sounds []synth.Song) {
 		}
 		if *score {
 			printScore(s)
+			return
+		}
+		if *export {
+			src, err := Source(Arrange(s), *pkg)
+			if err != nil {
+				fail("%s: %v", *id, err)
+			}
+			os.Stdout.Write(src)
 			return
 		}
 		if *stems {

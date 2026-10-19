@@ -2,15 +2,20 @@
 package songs
 
 import (
-	"slices"
-	"strings"
-
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/patches"
 )
 
+func Arrangements() []synth.Arrangement {
+	return []synth.Arrangement{goldenBrown, amberHours, playaSunrise, lavaLamp, brighterDays, smokeSignal, woodlands, interstellar}
+}
+
 func Songs() []synth.Song {
-	return []synth.Song{GoldenBrown(), AmberHours(), PlayaSunrise(), LavaLamp(), BrighterDays(), SmokeSignal(), Woodlands(), Interstellar()}
+	var songs []synth.Song
+	for _, a := range Arrangements() {
+		songs = append(songs, a.Song())
+	}
+	return songs
 }
 
 func Sounds() []synth.Song {
@@ -35,39 +40,4 @@ func Lookup(id string) (synth.Song, bool) {
 		}
 	}
 	return synth.Song{}, false
-}
-
-// form is a song's sections in order, a byte each, every pass the same number of steps.
-type form struct {
-	sections string
-	steps    int
-}
-
-// score writes a line through the form, one pass at a time; play returns "" to rest.
-func (f form) score(play func(pass int, section byte) string) string {
-	var b strings.Builder
-	for pass := range len(f.sections) {
-		bar := play(pass, f.sections[pass])
-		if bar == "" {
-			bar = silence(f.steps)
-		}
-		b.WriteString(bar + " ")
-	}
-	return b.String()
-}
-
-// plays writes a section line on the passes in plays and rests through the others.
-func (f form) plays(line map[byte]string, plays func(pass int) bool) string {
-	return f.score(func(pass int, s byte) string {
-		if !plays(pass) {
-			return ""
-		}
-		return line[s]
-	})
-}
-
-func from(first int) func(int) bool { return func(pass int) bool { return pass >= first } }
-
-func only(passes ...int) func(int) bool {
-	return func(pass int) bool { return slices.Contains(passes, pass) }
 }

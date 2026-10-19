@@ -36,14 +36,16 @@ type Phrase struct {
 	// Seconds between successive notes of a chord, lowest first: a harpsichordist's roll.
 	Strum float64
 
-	// Fraction of a step that every second token is pushed late: 0.33 is a triplet shuffle.
+	// Fraction of a step that every second step of the song is pushed late: 0.33 is a
+	// triplet shuffle.
 	Swing float64
 
 	// Seconds a D5/E5 slide takes to arrive; 0 spreads it over the note.
 	Glide float64
 
 	// Up to this many seconds of reproducible timing and velocity drift per note, so a
-	// machine-perfect line breathes a little. Seeded by Seed and the token's position.
+	// machine-perfect line breathes a little. Seeded by Seed and the step the token falls
+	// on, counted from the song's start, so a line written in pieces drifts as one.
 	Humanize float64
 	Seed     uint64
 }
@@ -64,6 +66,11 @@ func (p Phrase) Notes(bars ...string) []Note {
 	vel := p.Vel
 	if vel <= 0 {
 		vel = 0.8
+	}
+
+	first := 0
+	if p.Step > 0 {
+		first = int(math.Round(p.At / p.Step))
 	}
 
 	var notes []Note
@@ -88,11 +95,12 @@ func (p Phrase) Notes(bars ...string) []Note {
 		}
 
 		at := p.At + float64(i)*p.Step
-		if i%2 == 1 {
+		step := first + i
+		if step%2 != 0 {
 			at += p.Swing * p.Step
 		}
 		if p.Humanize > 0 {
-			r := newRNG(mixSeed(p.Seed, uint64(i)))
+			r := newRNG(mixSeed(p.Seed, uint64(step)))
 			at += p.Humanize * 0.5 * (r.float() + 1)
 			v *= 1 + 0.15*r.float()
 		}
