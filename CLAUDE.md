@@ -30,15 +30,17 @@ make play ID=goldenbrown           # render to a wav, print the envelope, play i
 make play ID=kick DUMP=1           # write the wav only
 make score ID=goldenbrown          # piano roll, one column per half beat
 make export ID=goldenbrown         # a first draft of any song as a synth.Arrangement
+make edit ID=goldenbrown           # the studio's window (specs/studio.md), reloading on save
 go run ./cmd/synth -id lavalamp -stems   # each part's peak, level, and LUFS, for mixing
 go run ./cmd/synth -bake <dir>     # bake everything to Ogg Vorbis (needs oggenc)
 make demo                          # Ebiten window: Golden Brown with a beat-synced display
 ```
 
-`cmd/synth` is `studio.Main` over the example content; a game wraps `studio` around its
-own songs and sounds to get the same loop.
+`cmd/synth` is `studio.Main` over the example content (a `studio.Library`); a game wraps
+`studio` around its own songs and sounds to get the same loop.
 
-Never launch the demo to check work; cover it with tests and `make play ... DUMP=1`.
+Never launch the demo or the studio's window to check work; cover it with tests and
+`make play ... DUMP=1`.
 
 ## Architecture
 
@@ -213,3 +215,25 @@ its own part off the bus.
 
 Renders are parallel per part and per note; notes land in their own buffers and are
 summed in order, so scheduling never changes a sample.
+
+### The studio
+
+`specs/studio.md` is the design, built in phases. `studio.Main -edit` runs
+`session.Supervise`, which runs the window (`studio/desk`, ebui with a dark painter of
+its own) as a child; the child watches the Go source of its own module and synth's
+(`go list -deps`), rebuilds itself when it settles, and hands off to the new build with
+its `session.View`. `studio/session` is everything without a display: a song laid out
+on the timeline (`Arranged`, or `Unarranged` for a song written as code, shown but not
+editable), transport arithmetic, and `Renders`, which renders what's heard (`Mix`: the
+loop, solo, the metronome, none of which reach the song) on a goroutine through a
+`synth.Renderer`. A Renderer is `Render` and `RenderLoop` with a cache of notes, parts
+and buses keyed by exactly what they render from; `Render` itself is a nil Renderer, so
+the two can't drift. It keeps buffers without their silent ends and lets go of what the
+last two renders didn't use; `Budget` caps the memory it keeps (the window's `-cache`,
+256MB), shedding what's cheapest to render again per byte, and `Spill` puts parts and
+buses in memory-mapped files, deleted as they're made, which the system pages out
+under pressure like a DAW's frozen tracks. Top-level renders take turns, so a mapping is
+never released under a render reading it.
+Playback is the player's `Preview`, a voice that plays a buffer from any frame, loops a
+region, and crossfades a new render in at its position. Meters read `synth.Gauge`s of
+each part and the mix at the playhead.

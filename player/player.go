@@ -88,6 +88,7 @@ func Baked(fsys fs.FS) Option {
 // and limits the two for the one output.
 type Player struct {
 	music, effects *stream
+	preview        *Preview
 	bus            *bus
 	out            output
 	ceiling        float64
@@ -108,6 +109,7 @@ type Player struct {
 func New(opts ...Option) *Player {
 	p := &Player{
 		music:   newStream(0, 0),
+		preview: newPreview(),
 		effects: newStream(1, maxEffects),
 		cache:   make(map[string]*rendered),
 		rng:     rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
@@ -120,10 +122,14 @@ func New(opts ...Option) *Player {
 		o(p)
 	}
 	p.music.hold = true
-	p.bus = newBus(p.music, p.effects, p.ceiling)
+	p.bus = newBus(p.music, p.effects, p.preview, p.ceiling)
 	p.out = newOutput(p.bus, p.buffer, p.latency)
+	p.preview.heard = p.out.played
 	return p
 }
+
+// Preview is the voice the studio plays songs through as it edits them.
+func (p *Player) Preview() *Preview { return p.preview }
 
 // Prepare renders songs, and every take of a sound, in the background, so the first
 // play doesn't wait on them.

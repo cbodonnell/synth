@@ -28,7 +28,7 @@ func peakOf(x []float32) float32 {
 
 func TestBusSumsMusicAndEffects(t *testing.T) {
 	music, effects := newStream(1, 0), newStream(1, 0)
-	b := newBus(music, effects, defaultCeiling)
+	b := newBus(music, effects, newPreview(), defaultCeiling)
 	music.play(newVoice("song", &memory{pcm: clip(0.25, 0.25)}, 1, 1), 0)
 	effects.play(newVoice("fx", &memory{pcm: clip(0.5)}, 1, 1), 0)
 	out := pull(t, b, 3)
@@ -37,7 +37,7 @@ func TestBusSumsMusicAndEffects(t *testing.T) {
 
 func TestAPileUpStaysUnderTheCeiling(t *testing.T) {
 	music, effects := newStream(1, 0), newStream(1, 16)
-	b := newBus(music, effects, defaultCeiling)
+	b := newBus(music, effects, newPreview(), defaultCeiling)
 	music.play(newVoice("song", &memory{pcm: sine(48000, 220)}, 1, 0.6), 0)
 	for i := range 4 {
 		effects.play(newVoice("fanfare", &memory{pcm: sine(48000, 100+float64(i)*7)}, 1, 0.7), 0)
@@ -62,7 +62,7 @@ func TestTheLimiterLetsGo(t *testing.T) {
 func TestHeldMusicStandsStill(t *testing.T) {
 	music := newStream(0, 0)
 	music.hold = true
-	b := newBus(music, newStream(1, 0), defaultCeiling)
+	b := newBus(music, newStream(1, 0), newPreview(), defaultCeiling)
 	pcm := sine(1000, 50)
 	for i := range pcm {
 		pcm[i] *= 0.5

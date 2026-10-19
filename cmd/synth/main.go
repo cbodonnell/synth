@@ -6,4 +6,6 @@ import (
 	"github.com/cbodonnell/synth/studio"
 )
 
-func main() { studio.Main(songs.Songs(), songs.Sounds()) }
+func main() {
+	studio.Main(studio.Library{Arrangements: songs.Arrangements(), Sounds: songs.Sounds()})
+}

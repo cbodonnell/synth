@@ -1,10 +1,11 @@
 // Package studio is the authoring loop as a command any game can wrap around its own
-// songs and sounds: render one to a wav, print its envelope, and play it; or print its
-// piano roll, or each part's level, or a draft of it as an Arrangement; or bake them all
-// for shipping.
+// songs and sounds: open the studio's window on them; render one to a wav, print its
+// envelope, and play it; or print its piano roll, or each part's level, or a draft of it
+// as an Arrangement; or bake them all for shipping.
 package studio
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"math"
@@ -17,10 +18,21 @@ import (
 
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/bake"
+	"github.com/cbodonnell/synth/studio/desk"
+	"github.com/cbodonnell/synth/studio/session"
 )
 
-// Main parses the command line and runs it over songs and sounds.
-func Main(songs, sounds []synth.Song) {
+// Library is a game's music and sound: its arrangements, any songs written as code
+// instead, and its sound effects.
+type Library = session.Library
+
+// Main parses the command line and runs it over the library.
+func Main(lib Library) {
+	edit := flag.Bool("edit", false, "open the studio's window, reloading as the source changes")
+	child := flag.Bool("child", false, "run the window in this process (the supervisor's child)")
+	handoff := flag.String("handoff", "", "where the window leaves a handoff when it has rebuilt itself")
+	view := flag.String("view", "", "where the window opens, as a reload hands it on")
+	cache := flag.Int64("cache", 256, "megabytes of memory the window's renders may keep")
 	id := flag.String("id", "", "song or sound to render (see -list)")
 	list := flag.Bool("list", false, "list songs and sounds")
 	loops := flag.Int("loops", 2, "times through a looping song's body")
@@ -34,7 +46,7 @@ func Main(songs, sounds []synth.Song) {
 	flag.Parse()
 
 	lookup := func(id string) (synth.Song, bool) {
-		for _, s := range append(songs, sounds...) {
+		for _, s := range lib.All() {
 			if s.ID == id {
 				return s, true
 			}
@@ -43,18 +55,42 @@ func Main(songs, sounds []synth.Song) {
 	}
 
 	switch {
-	case *bakeDir != "":
-		began := time.Now()
-		if err := bake.Bake(*bakeDir, append(songs, sounds...)...); err != nil {
+	case *edit && !*child:
+		bin, err := os.Executable()
+		if err != nil {
 			fail("%v", err)
 		}
-		fmt.Printf("baked %d into %s in %v\n", len(songs)+len(sounds), *bakeDir, time.Since(began).Round(time.Millisecond))
+		os.Exit(session.Supervise(bin, os.Args[1:]))
+
+	case *edit:
+		v := session.View{ID: *id, Loop: true, Browser: true}
+		if *view != "" {
+			var err error
+			if v, err = session.ParseView(*view); err != nil {
+				fail("-view: %v", err)
+			}
+		}
+		err := desk.Run(desk.Config{Library: lib, View: v, Handoff: *handoff, Cache: *cache << 20})
+		if errors.Is(err, desk.ErrReload) {
+			os.Exit(session.ReloadExit)
+		}
+		if err != nil {
+			fail("%v", err)
+		}
+
+	case *bakeDir != "":
+		began := time.Now()
+		all := lib.All()
+		if err := bake.Bake(*bakeDir, all...); err != nil {
+			fail("%v", err)
+		}
+		fmt.Printf("baked %d into %s in %v\n", len(all), *bakeDir, time.Since(began).Round(time.Millisecond))
 
 	case *list:
-		for _, s := range songs {
+		for _, s := range lib.Music() {
 			fmt.Printf("%-12s %-24s %5.1fs  loop from %.1fs\n", s.ID, s.Name, s.Length, s.LoopStart)
 		}
-		for _, s := range sounds {
+		for _, s := range lib.Sounds {
 			fmt.Printf("%-12s sound\n", s.ID)
 		}
 

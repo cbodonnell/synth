@@ -55,6 +55,7 @@ p := player.New(player.Baked(os.DirFS("assets/baked")))
 ```
 
 ```sh
+make edit ID=goldenbrown   # the studio's window, reloading as the source changes
 make play ID=goldenbrown   # render, print the envelope, play
 make score ID=goldenbrown  # piano roll
 make export ID=goldenbrown # a song as a draft Arrangement
