@@ -61,6 +61,7 @@ type View struct {
 	Click   bool
 	Solo    []string
 	Track   string // the selected track
+	Clip    string // the clip open in the editor, on the selected track
 
 	Zoom    float64 // pixels a second; 0 fits the song
 	Scroll  float64 // seconds at the timeline's left edge

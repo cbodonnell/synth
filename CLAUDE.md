@@ -253,3 +253,14 @@ in a saved file savable; the watcher leaves the studio's own saves out (`Saved`)
 build that finishes behind unsaved edits waits for "Reload, dropping unsaved edits".
 The mixer (`X`) is the desk's `mixer`, hand-drawn like the timeline: faders, pan and
 send knobs, outs, mute (`Track.Mute`, saved) and solo (the studio's).
+
+Clicking a clip opens the clip editor (`clipEditor`) beneath the arrangement: a piano
+roll, or for a `Hit` clip a drum grid, over a velocity lane, beside the clip's settings.
+It edits a `session.Grid`, the clip's bars read as one line of events (a note, chord or
+hit struck on a step and held for its holds), so a note drawn under a held one cuts it
+short. `Grid.Write` writes back only the bars that changed, keeping each token as written
+while it says the same, and the writer splices a changed bar string in place, so an
+edit and its undo are byte for byte. Accents are the velocity lane's three levels, a
+ratchet is one note, halving the step loses nothing (doubling needs every note on the
+longer step), and step input (Ctrl/Cmd+E) types at a cursor. `session.Scale` reads the
+song's `Key`: the lit keys, how new notes are spelled, and the triad and seventh stamps.

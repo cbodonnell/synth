@@ -79,12 +79,13 @@ func (d *Doc) Now() synth.Arrangement { return d.now }
 // Dirty reports whether there are edits since the last save.
 func (d *Doc) Dirty() bool { return d.dirty }
 
-// Edit applies f to a copy of the arrangement, as one step to undo.
-func (d *Doc) Edit(f func(a *synth.Arrangement)) {
+// Edit applies f to a copy of the arrangement, as one step to undo, and reports
+// whether it changed anything.
+func (d *Doc) Edit(f func(a *synth.Arrangement)) bool {
 	next := clone(reflect.ValueOf(d.now)).Interface().(synth.Arrangement)
 	f(&next)
 	if reflect.DeepEqual(next, d.now) {
-		return
+		return false
 	}
 	if !d.held || !d.stepped {
 		d.undo = append(d.undo, d.now)
@@ -95,6 +96,7 @@ func (d *Doc) Edit(f func(a *synth.Arrangement)) {
 	}
 	d.redo = nil
 	d.set(next)
+	return true
 }
 
 // History is how many edits there are to undo and to redo.

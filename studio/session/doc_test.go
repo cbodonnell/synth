@@ -80,6 +80,29 @@ var edits = map[string]func(a *synth.Arrangement){
 			a.Buses[0].Level = math.Round(a.Buses[0].Level*10+15) / 10
 		}
 	},
+	"note drawn": gridEdit(false, func(g Grid) Grid { return g.Draw(g.Steps()-1, 1, 60) }),
+	"note moved": gridEdit(false, func(g Grid) Grid {
+		e := g.Events[0]
+		g, _ = g.Move([]Ref{{e.Step, e.Keys[0].Key}}, 0, 1)
+		return g
+	}),
+	"note stretched":   gridEdit(false, func(g Grid) Grid { return g.Stretch(g.Events[0].Step, 1) }),
+	"note accented":    gridEdit(false, func(g Grid) Grid { return g.Accent(g.Events[0].Step, -1) }),
+	"drum cell cycled": gridEdit(true, func(g Grid) Grid { return g.Cycle(0) }),
+	"step halved": func(a *synth.Arrangement) {
+		for i, t := range a.Tracks {
+			for j, c := range t.Clips {
+				if frac, _ := math.Frexp(c.Step); frac != 0.5 || len(c.Bars) == 0 {
+					continue
+				}
+				g, _ := ReadGrid(c)
+				sc, _ := ParseScale(a.Key)
+				a.Tracks[i].Clips[j].Step /= 2
+				a.Tracks[i].Clips[j].Bars = g.Halve().Write(sc)
+				return
+			}
+		}
+	},
 	"out": func(a *synth.Arrangement) {
 		for i := range a.Tracks {
 			if a.Tracks[i].Out == "" && len(a.Buses) > 0 {
@@ -88,6 +111,23 @@ var edits = map[string]func(a *synth.Arrangement){
 			}
 		}
 	},
+}
+
+// gridEdit edits the first clip of the arrangement on a grid, a Hit clip or not.
+func gridEdit(hit bool, f func(g Grid) Grid) func(a *synth.Arrangement) {
+	return func(a *synth.Arrangement) {
+		for i, t := range a.Tracks {
+			for j, c := range t.Clips {
+				g, err := ReadGrid(c)
+				if err != nil || g.Hit != hit || len(g.Events) == 0 {
+					continue
+				}
+				sc, _ := ParseScale(a.Key)
+				a.Tracks[i].Clips[j].Bars = f(g).Write(sc)
+				return
+			}
+		}
+	}
 }
 
 func TestEditsSaveAndUndoToTheSameBytes(t *testing.T) {
@@ -218,9 +258,9 @@ func TestSavesTouchOnlyWhatChanged(t *testing.T) {
 	assert.Contains(t, got, `Name: "bass", Patch: patches.Bass(), Pan: -0.2,`, "a field gone to zero is removed")
 	assert.NotContains(t, got, "a little", "a deleted item takes its end-of-line comment")
 	assert.Regexp(t, `Mute: +true,\n\t\t},`, got, "a new field goes at the end")
-	assert.Contains(t, got, "\"C2 - -\",\n\t\t\t\t\"A1 - -\",", "bars are rewritten one to a line")
+	assert.Contains(t, got, `Bars: []string{"C2 - -", "A1 - -"}}`, "a bar is rewritten where it is")
 	assert.Contains(t, got, "Step: 1.0 / 1,", "untouched")
-	assert.Equal(t, strings.Count(src, "\n")+3, strings.Count(got, "\n"))
+	assert.Equal(t, strings.Count(src, "\n"), strings.Count(got, "\n"))
 }
 
 func TestSaveRefusesAFileChangedOnDisk(t *testing.T) {

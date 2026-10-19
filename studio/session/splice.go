@@ -462,11 +462,19 @@ func (w *writer) diff(expr ast.Expr, old, new reflect.Value, typed bool) {
 		w.remove(lit, gone)
 		w.insert(lit, len(lit.Elts), added, len(gone) < len(lit.Elts))
 	case reflect.Slice:
+		keyed := slices.ContainsFunc(lit.Elts, func(e ast.Expr) bool { _, ok := e.(*ast.KeyValueExpr); return ok })
 		switch elem := old.Type().Elem(); {
-		case elem == noteType, elem.Kind() != reflect.Struct && elem.Kind() != reflect.Interface && elem.Kind() != reflect.Pointer:
+		case keyed, elem == noteType:
 			w.replace(expr, new, typed)
-		case slices.ContainsFunc(lit.Elts, func(e ast.Expr) bool { _, ok := e.(*ast.KeyValueExpr); return ok }):
-			w.replace(expr, new, typed)
+		case elem.Kind() != reflect.Struct && elem.Kind() != reflect.Interface && elem.Kind() != reflect.Pointer:
+			// A clip's bars, as many as there were, are rewritten where they are.
+			if old.Len() != new.Len() || len(lit.Elts) != old.Len() {
+				w.replace(expr, new, typed)
+				return
+			}
+			for i := range old.Len() {
+				w.diff(lit.Elts[i], old.Index(i), new.Index(i), false)
+			}
 		default:
 			w.list(lit, old, new)
 		}

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cbodonnell/synth"
 	"github.com/cbodonnell/synth/studio/session"
@@ -56,6 +57,8 @@ type typing struct {
 	id   string
 	text string
 	set  func(s string) bool
+	// The characters it takes; "" takes a level's or a pan's.
+	chars string
 }
 
 type menu struct {
@@ -441,23 +444,34 @@ func (m *mixer) keys(d *desk) bool {
 	if m.typing == nil {
 		return false
 	}
-	t := m.typing
+	if typeInto(m.typing) {
+		m.typing = nil
+	}
+	return true
+}
+
+// typeInto types this frame's keys into t, reporting whether it's done: entered, or
+// given up with Escape.
+func typeInto(t *typing) bool {
+	chars := t.chars
+	if chars == "" {
+		chars = "0123456789.-+ dDbBlLrRcC"
+	}
 	for _, r := range ebiten.AppendInputChars(nil) {
-		if strings.ContainsRune("0123456789.-+ dDbBlLrRcC", r) {
+		if chars == "*" || strings.ContainsRune(chars, r) {
 			t.text += string(r)
 		}
 	}
 	switch {
 	case inpututil.IsKeyJustPressed(ebiten.KeyEscape):
-		m.typing = nil
+		return true
 	case inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && len(t.text) > 0:
-		t.text = t.text[:len(t.text)-1]
+		_, n := utf8.DecodeLastRuneInString(t.text)
+		t.text = t.text[:len(t.text)-n]
 	case inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadEnter):
-		if t.set(t.text) {
-			m.typing = nil
-		}
+		return t.set(t.text)
 	}
-	return true
+	return false
 }
 
 func (m *mixer) itemRect(d *desk, i int) image.Rectangle {

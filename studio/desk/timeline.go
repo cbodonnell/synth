@@ -166,7 +166,20 @@ func (t *timeline) update(d *desk) {
 			return
 		}
 		name := d.layout.Lanes[r.lane].Name
-		d.view.Track = name
+		clip := ""
+		if fx >= t.left(d) {
+			for _, b := range d.layout.Lanes[r.lane].Blocks {
+				if fx >= t.x(d, b.From) && fx < t.x(d, b.To) {
+					clip = b.Clip
+				}
+			}
+		}
+		switch {
+		case clip != "":
+			d.openClip(name, clip)
+		case name != d.view.Track:
+			d.openClip(name, "")
+		}
 		switch {
 		case image.Pt(x, y).In(t.soloBox(d, r)):
 			d.toggleSolo(name)
@@ -456,6 +469,13 @@ func (t *timeline) drawBlocks(dst *ebiten.Image, d *desk, r row) {
 		}
 		y0, y1 := r.y+d.px(2), r.y+r.h-d.px(2)
 		fillF(dst, x0+1, y0, x1-x0-1, y1-y0, body)
+		if lane.Name == d.view.Track && b.Clip == d.view.Clip {
+			c := color.Color(ink)
+			line(dst, x0+1, y0, x1, y0, d.px(1.5), c)
+			line(dst, x0+1, y1, x1, y1, d.px(1.5), c)
+			line(dst, x0+1, y0, x0+1, y1, d.px(1.5), c)
+			line(dst, x1, y0, x1, y1, d.px(1.5), c)
+		}
 		strip := d.px(14)
 		fillF(dst, x0+1, y0, x1-x0-1, strip, label)
 		drawText(dst, d.fonts.text, fit(d.fonts.text, b.Clip, x1-x0-d.px(8)), x0+d.px(4), y0+strip/2, ground, text.AlignStart)

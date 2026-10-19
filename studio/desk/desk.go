@@ -116,6 +116,7 @@ type desk struct {
 	widgets *widgets
 	tl      timeline
 	mx      mixer
+	ce      clipEditor
 	stale   bool // laid out for a view that has changed
 }
 
@@ -145,7 +146,7 @@ func (d *desk) open(id string, fresh bool) {
 			l = session.Arranged(doc.Now())
 		}
 	}
-	d.mx = mixer{}
+	d.mx, d.ce = mixer{}, clipEditor{}
 	d.layout, d.take, d.loudness, d.seam = l, nil, math.Inf(-1), false
 	d.view.ID, d.view.Playing = id, playing
 	if fresh {
@@ -182,8 +183,9 @@ func (d *desk) edit(f func(a *synth.Arrangement)) {
 	if d.doc == nil {
 		return
 	}
-	d.doc.Edit(f)
-	d.changed()
+	if d.doc.Edit(f) {
+		d.changed()
+	}
 }
 
 // changed lays out and plays the doc as it is now.
@@ -195,13 +197,13 @@ func (d *desk) changed() {
 }
 
 func (d *desk) undo() {
-	if d.doc != nil && d.mx.drag == nil && d.doc.Undo() {
+	if d.doc != nil && d.mx.drag == nil && d.ce.drag == nil && d.doc.Undo() {
 		d.changed()
 	}
 }
 
 func (d *desk) redo() {
-	if d.doc != nil && d.mx.drag == nil && d.doc.Redo() {
+	if d.doc != nil && d.mx.drag == nil && d.ce.drag == nil && d.doc.Redo() {
 		d.changed()
 	}
 }
@@ -399,6 +401,9 @@ func (d *desk) Update() error {
 	if err := d.receiveBuilds(); err != nil {
 		return err
 	}
+	if d.widgets != nil && d.detailOpen() == d.widgets.detail.Empty() {
+		d.stale = true
+	}
 	if d.stale {
 		d.stale = false
 		d.relayout()
@@ -423,7 +428,7 @@ func (d *desk) Update() error {
 	if err := d.ui.Update(); err != nil {
 		return err
 	}
-	if !d.mx.keys(d) {
+	if !d.mx.keys(d) && !d.ce.keys(d) {
 		d.keys()
 	}
 	if d.view.Mixer {
@@ -431,6 +436,7 @@ func (d *desk) Update() error {
 	} else {
 		d.tl.update(d)
 	}
+	d.ce.update(d)
 	d.widgets.refresh(d)
 	return nil
 }
@@ -568,6 +574,7 @@ func (d *desk) relayout() {
 	d.ui = ebui.NewManager(d.widgets.root, ebui.WithNavInput(nil))
 	d.ui.DisableFocus()
 	d.tl.place(d)
+	d.ce.r = d.widgets.detail
 }
 
 func (d *desk) Draw(screen *ebiten.Image) {
@@ -581,6 +588,7 @@ func (d *desk) Draw(screen *ebiten.Image) {
 	} else {
 		d.tl.draw(screen, d)
 	}
+	d.ce.draw(screen, d)
 	d.ui.Draw(screen)
 	d.widgets.drawOver(screen, d)
 	if d.ask != nil {

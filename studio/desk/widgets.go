@@ -38,7 +38,7 @@ type widgets struct {
 	items                                              map[string]*ebui.Button
 	status                                             *ebui.Label
 
-	transport, browser, statusBar, timeline image.Rectangle
+	transport, browser, statusBar, timeline, detail image.Rectangle
 }
 
 func buildWidgets(d *desk) *widgets {
@@ -53,7 +53,13 @@ func buildWidgets(d *desk) *widgets {
 		left = int(px(browserW))
 		ws.browser = image.Rect(0, ws.transport.Max.Y, left, ws.statusBar.Min.Y)
 	}
-	ws.timeline = image.Rect(left, ws.transport.Max.Y, d.w, ws.statusBar.Min.Y)
+	bottom := ws.statusBar.Min.Y
+	if d.detailOpen() {
+		h := int(math.Max(px(detailH), float64(bottom-ws.transport.Max.Y)*0.42))
+		ws.detail = image.Rect(left, bottom-h, d.w, bottom)
+		bottom -= h
+	}
+	ws.timeline = image.Rect(left, ws.transport.Max.Y, d.w, bottom)
 
 	bar := ebui.NewLayoutContainer(
 		ebui.WithSize(w, px(transportH)),
@@ -224,7 +230,7 @@ func (ws *widgets) refresh(d *desk) {
 		ws.progress.SetText("")
 	}
 
-	hint := "space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · Z fit · B browser · cmd+wheel zoom · cmd+Z undo · cmd+S save"
+	hint := "click a clip to edit it · space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · Z fit · B browser · cmd+wheel zoom · cmd+Z undo · cmd+S save"
 	if d.view.Mixer {
 		hint = "drag faders and knobs (shift: fine) · double-click resets · click a value to type it · " + hint
 	}
@@ -233,6 +239,9 @@ func (ws *widgets) refresh(d *desk) {
 	}
 	if d.view.Mixer && d.mx.hint != "" {
 		hint = d.mx.hint
+	}
+	if image.Pt(ebiten.CursorPosition()).In(d.ce.r) && d.ce.hint != "" {
+		hint = d.ce.hint
 	}
 	if d.note != "" {
 		hint = d.note + "   ·   " + hint
