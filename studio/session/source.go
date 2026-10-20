@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"go/format"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -199,7 +200,16 @@ func typeName(t reflect.Type) string {
 }
 
 // number writes a float at ten significant digits, so arithmetic's last-bit noise
-// doesn't reach the source.
+// doesn't reach the source, or as a fraction when that's what it is: a triplet's 1.0 / 3.
 func number(x float64) string {
-	return strconv.FormatFloat(x, 'g', 10, 64)
+	s := strconv.FormatFloat(x, 'g', 10, 64)
+	if y, _ := strconv.ParseFloat(s, 64); y == x {
+		return s
+	}
+	for den := 3.0; den <= 64; den++ {
+		if n := math.Round(x * den); n/den == x {
+			return fmt.Sprintf("%.1f / %g", n, den)
+		}
+	}
+	return s
 }

@@ -107,7 +107,10 @@ type desk struct {
 	reload  bool
 
 	ask  *prompt
-	quit bool
+	menu *menu
+	// A field of the transport or the ruler being typed into.
+	typing *typing
+	quit   bool
 
 	scale   float64
 	w, h    int
@@ -146,7 +149,8 @@ func (d *desk) open(id string, fresh bool) {
 			l = session.Arranged(doc.Now())
 		}
 	}
-	d.mx, d.ce = mixer{}, clipEditor{}
+	d.mx, d.ce, d.tl.sel, d.tl.drag = mixer{}, clipEditor{}, playRef{}, nil
+	d.menu, d.typing = nil, nil
 	d.layout, d.take, d.loudness, d.seam = l, nil, math.Inf(-1), false
 	d.view.ID, d.view.Playing = id, playing
 	if fresh {
@@ -197,16 +201,18 @@ func (d *desk) changed() {
 }
 
 func (d *desk) undo() {
-	if d.doc != nil && d.mx.drag == nil && d.ce.drag == nil && d.doc.Undo() {
+	if d.doc != nil && !d.dragging() && d.doc.Undo() {
 		d.changed()
 	}
 }
 
 func (d *desk) redo() {
-	if d.doc != nil && d.mx.drag == nil && d.ce.drag == nil && d.doc.Redo() {
+	if d.doc != nil && !d.dragging() && d.doc.Redo() {
 		d.changed()
 	}
 }
+
+func (d *desk) dragging() bool { return d.mx.drag != nil || d.ce.drag != nil || d.tl.drag != nil }
 
 func (d *desk) dirty() bool { return d.docs != nil && len(d.docs.Dirty()) > 0 }
 
@@ -248,7 +254,7 @@ func (d *desk) toggleMute(name string) {
 
 func (d *desk) toggleMixer() {
 	d.view.Mixer = !d.view.Mixer
-	d.mx.menu, d.mx.typing = nil, nil
+	d.menu, d.mx.typing = nil, nil
 }
 
 // closing asks what to do with unsaved edits before the window closes.
@@ -425,10 +431,19 @@ func (d *desk) Update() error {
 		d.ask.update(d)
 		return nil
 	}
+	ebiten.SetCursorShape(ebiten.CursorShapeDefault)
+	if d.menu != nil {
+		d.menu.update(d)
+		d.widgets.refresh(d)
+		return nil
+	}
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		d.typing = nil
+	}
 	if err := d.ui.Update(); err != nil {
 		return err
 	}
-	if !d.mx.keys(d) && !d.ce.keys(d) {
+	if !d.typeKeys() && !d.mx.keys(d) && !d.ce.keys(d) {
 		d.keys()
 	}
 	if d.view.Mixer {
@@ -453,6 +468,8 @@ func (d *desk) keys() {
 			d.undo()
 		case pressed(ebiten.KeyS):
 			d.save()
+		case pressed(ebiten.KeyD) && !d.view.Mixer:
+			d.tl.repeat(d)
 		}
 		return
 	}
@@ -488,6 +505,8 @@ func (d *desk) keys() {
 		d.tl.selectNext(d, -1)
 	case pressed(ebiten.KeyDown):
 		d.tl.selectNext(d, 1)
+	case (pressed(ebiten.KeyDelete) || pressed(ebiten.KeyBackspace)) && !d.view.Mixer:
+		d.tl.deletePlay(d)
 	}
 }
 
@@ -591,6 +610,9 @@ func (d *desk) Draw(screen *ebiten.Image) {
 	d.ce.draw(screen, d)
 	d.ui.Draw(screen)
 	d.widgets.drawOver(screen, d)
+	if d.menu != nil {
+		d.menu.draw(screen, d)
+	}
 	if d.ask != nil {
 		d.ask.draw(screen, d)
 	}

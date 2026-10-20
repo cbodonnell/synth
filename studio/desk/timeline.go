@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/cbodonnell/synth/studio/session"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -27,6 +28,13 @@ const (
 // buses folding their tracks under them, and the playhead across it all.
 type timeline struct {
 	r image.Rectangle // all of it, in window pixels
+
+	sel  playRef // the play last clicked
+	drag *laneDrag
+	hint string
+
+	last     string // what was last clicked, and when, for a double-click
+	lastTime time.Time
 }
 
 // row is a lane, or a group bus's header over its tracks.
@@ -111,11 +119,16 @@ func (t *timeline) contentHeight(d *desk) float64 {
 }
 
 func (t *timeline) update(d *desk) {
+	t.hint = ""
 	if d.sounding {
 		// Turn the page when the playhead runs off it.
 		if px := t.x(d, d.view.At); px > float64(t.r.Max.X) || px < t.left(d) {
 			d.view.Scroll = math.Max(0, d.view.At-d.px(24)/t.pps(d))
 		}
+	}
+	if t.drag != nil {
+		t.dragging(d)
+		return
 	}
 
 	x, y := ebiten.CursorPosition()
@@ -143,7 +156,7 @@ func (t *timeline) update(d *desk) {
 		t.clampScroll(d)
 	}
 
-	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if t.arranging(d, fx, fy) || !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return
 	}
 	if fy < t.top(d) {
@@ -328,7 +341,19 @@ func (t *timeline) drawRuler(dst *ebiten.Image, d *desk) {
 		}
 		fillF(ruler, x0, top, x1-x0, mid-top, c)
 		line(ruler, x0, top, x0, mid, 1, barLine)
-		drawText(ruler, d.fonts.text, fit(d.fonts.text, sec.Name, x1-x0-d.px(8)), x0+d.px(5), (top+mid)/2, ink, text.AlignStart)
+		name, nameColor := sec.Name, color.Color(ink)
+		if typed, ok := d.typed(fmt.Sprint("section ", i)); ok {
+			fillF(ruler, x0+1, top, x1-x0-1, mid-top, edge)
+			name, nameColor = typed, playhead
+		}
+		drawText(ruler, d.fonts.text, fit(d.fonts.text, name, x1-x0-d.px(8)), x0+d.px(5), (top+mid)/2, nameColor, text.AlignStart)
+	}
+	if g := t.drag; g != nil && g.kind == movingLoop {
+		x, _ := ebiten.CursorPosition()
+		if i := t.loopTarget(d, float64(x)); i >= 0 {
+			lx := t.x(d, d.layout.Sections[i].From)
+			line(ruler, lx, top, lx, bottom, d.px(2), loopColor)
+		}
 	}
 	if s.Loop {
 		x0, x1 := t.x(d, s.LoopStart), t.x(d, s.Length)
@@ -471,6 +496,9 @@ func (t *timeline) drawBlocks(dst *ebiten.Image, d *desk, r row) {
 		fillF(dst, x0+1, y0, x1-x0-1, y1-y0, body)
 		if lane.Name == d.view.Track && b.Clip == d.view.Clip {
 			c := color.Color(ink)
+			if t.sel == (playRef{lane.Name, b.Play}) {
+				c = playhead
+			}
 			line(dst, x0+1, y0, x1, y0, d.px(1.5), c)
 			line(dst, x0+1, y1, x1, y1, d.px(1.5), c)
 			line(dst, x0+1, y0, x0+1, y1, d.px(1.5), c)
@@ -478,6 +506,10 @@ func (t *timeline) drawBlocks(dst *ebiten.Image, d *desk, r row) {
 		}
 		strip := d.px(14)
 		fillF(dst, x0+1, y0, x1-x0-1, strip, label)
+		for _, at := range b.Passes {
+			px := t.x(d, at)
+			line(dst, px, y0, px, y0+strip, 1, body)
+		}
 		drawText(dst, d.fonts.text, fit(d.fonts.text, b.Clip, x1-x0-d.px(8)), x0+d.px(4), y0+strip/2, ground, text.AlignStart)
 
 		top, bottom := y0+strip+d.px(2), y1-d.px(2)

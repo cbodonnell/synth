@@ -82,8 +82,42 @@ func (d *Doc) Dirty() bool { return d.dirty }
 // Edit applies f to a copy of the arrangement, as one step to undo, and reports
 // whether it changed anything.
 func (d *Doc) Edit(f func(a *synth.Arrangement)) bool {
-	next := clone(reflect.ValueOf(d.now)).Interface().(synth.Arrangement)
+	next := d.copy()
 	f(&next)
+	return d.take(next)
+}
+
+// ErrCode refuses an edit that would write over code.
+var ErrCode = errors.New("it's written as code: edit it there")
+
+// Arrange applies f to a copy of the arrangement as Edit does, when f says it can and
+// the result validates and leaves every value written as code as it is.
+func (d *Doc) Arrange(f func(a *synth.Arrangement) error) error {
+	next := d.copy()
+	if err := f(&next); err != nil {
+		return err
+	}
+	if reflect.DeepEqual(next, d.now) {
+		return nil
+	}
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	w := &writer{file: d.f}
+	w.diff(d.f.lit, reflect.ValueOf(d.saved), reflect.ValueOf(next), true)
+	if w.code {
+		return ErrCode
+	}
+	d.take(next)
+	return nil
+}
+
+func (d *Doc) copy() synth.Arrangement {
+	return clone(reflect.ValueOf(d.now)).Interface().(synth.Arrangement)
+}
+
+// take makes next the arrangement, as a step to undo, reporting whether it changed.
+func (d *Doc) take(next synth.Arrangement) bool {
 	if reflect.DeepEqual(next, d.now) {
 		return false
 	}

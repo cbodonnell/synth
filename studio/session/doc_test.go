@@ -103,6 +103,18 @@ var edits = map[string]func(a *synth.Arrangement){
 			}
 		}
 	},
+	"play moved": func(a *synth.Arrangement) {
+		t := &a.Tracks[len(a.Tracks)-1]
+		t.Play[len(t.Play)-1].Bar++
+	},
+	"play repeated":      func(a *synth.Arrangement) { RepeatPlay(a, 0, 0) },
+	"play made unique":   func(a *synth.Arrangement) { MakeUnique(a, 0, 0) },
+	"section inserted":   func(a *synth.Arrangement) { InsertSection(a, 1, NewSectionBars(*a)) },
+	"section resized":    func(a *synth.Arrangement) { _ = ResizeSection(a, 0, a.Sections[0].Bars+SectionBars(*a)) },
+	"section deleted":    func(a *synth.Arrangement) { _ = DeleteSection(a, len(a.Sections)-1) },
+	"section renamed":    func(a *synth.Arrangement) { _ = RenameSection(a, len(a.Sections)-1, "Coda") },
+	"section duplicated": func(a *synth.Arrangement) { DuplicateSection(a, 0) },
+	"tempo":              func(a *synth.Arrangement) { a.Tempo += 2 },
 	"out": func(a *synth.Arrangement) {
 		for i := range a.Tracks {
 			if a.Tracks[i].Out == "" && len(a.Buses) > 0 {

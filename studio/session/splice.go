@@ -322,6 +322,7 @@ type splice struct {
 type writer struct {
 	*file
 	edits []splice
+	code  bool // it writes over code
 }
 
 func (w *writer) off(p token.Pos) int { return w.tok.Offset(p) }
@@ -381,8 +382,9 @@ func (w *writer) remove(lit *ast.CompositeLit, gone []int) {
 }
 
 // insert writes items into the literal before element k, or at its end, one to a line
-// when the literal has lines; survivors says whether any element is kept.
-func (w *writer) insert(lit *ast.CompositeLit, k int, items []string, survivors bool) {
+// when the literal has lines, or into the row they fall in when rows says it's written
+// several to a line; survivors says whether any element is kept.
+func (w *writer) insert(lit *ast.CompositeLit, k int, items []string, survivors, rows bool) {
 	if len(items) == 0 {
 		return
 	}
@@ -390,7 +392,7 @@ func (w *writer) insert(lit *ast.CompositeLit, k int, items []string, survivors 
 	inline := strings.Join(items, ", ")
 	if k < len(lit.Elts) {
 		at := w.off(lit.Elts[k].Pos())
-		if start := w.lineStart(at); w.multiline(lit) && strings.TrimSpace(string(w.src[start:at])) == "" {
+		if start := w.lineStart(at); w.multiline(lit) && !rows && strings.TrimSpace(string(w.src[start:at])) == "" {
 			w.edits = append(w.edits, splice{start, start, lines})
 		} else {
 			w.edits = append(w.edits, splice{at, at, inline + ", "})
@@ -404,6 +406,8 @@ func (w *writer) insert(lit *ast.CompositeLit, k int, items []string, survivors 
 	}
 	between := string(w.src[after:rbrace])
 	switch {
+	case rows:
+		w.edits = append(w.edits, splice{after, after, ", " + inline})
 	case strings.Contains(between, "\n"):
 		start := w.lineStart(rbrace)
 		w.edits = append(w.edits, splice{start, start, lines})
@@ -426,6 +430,7 @@ func (w *writer) diff(expr ast.Expr, old, new reflect.Value, typed bool) {
 	}
 	lit := compositeOf(expr)
 	if lit == nil {
+		w.code = w.code || !w.plain(expr)
 		w.replace(expr, new, typed)
 		return
 	}
@@ -460,7 +465,7 @@ func (w *writer) diff(expr ast.Expr, old, new reflect.Value, typed bool) {
 			}
 		}
 		w.remove(lit, gone)
-		w.insert(lit, len(lit.Elts), added, len(gone) < len(lit.Elts))
+		w.insert(lit, len(lit.Elts), added, len(gone) < len(lit.Elts), false)
 	case reflect.Slice:
 		keyed := slices.ContainsFunc(lit.Elts, func(e ast.Expr) bool { _, ok := e.(*ast.KeyValueExpr); return ok })
 		switch elem := old.Type().Elem(); {
@@ -571,8 +576,21 @@ func (w *writer) list(lit *ast.CompositeLit, old, new reflect.Value) {
 	gap(i0, n, j0, m)
 	w.remove(lit, gone)
 	for _, ins := range inserts {
-		w.insert(lit, ins.at, ins.items, len(gone) < n)
+		w.insert(lit, ins.at, ins.items, len(gone) < n, w.rows(lit))
 	}
+}
+
+// rows reports whether a list with lines has items several to a line.
+func (w *writer) rows(lit *ast.CompositeLit) bool {
+	if !w.multiline(lit) {
+		return false
+	}
+	for i := 1; i < len(lit.Elts); i++ {
+		if w.line(w.off(lit.Elts[i].Pos())) == w.line(w.off(lit.Elts[i-1].End())) {
+			return true
+		}
+	}
+	return false
 }
 
 // apply makes the edited source, gofmted.

@@ -33,7 +33,6 @@ type mixer struct {
 
 	drag   *drag
 	typing *typing
-	menu   *menu
 	hint   string // what the control under the cursor can't do
 
 	last     string // the control last clicked, and when, for a double-click
@@ -59,16 +58,6 @@ type typing struct {
 	set  func(s string) bool
 	// The characters it takes; "" takes a level's or a pan's.
 	chars string
-}
-
-type menu struct {
-	at    image.Point
-	items []item
-}
-
-type item struct {
-	label string
-	do    func()
 }
 
 type stripKind int
@@ -195,7 +184,7 @@ func (m *mixer) update(d *desk, r image.Rectangle) {
 
 	if !pt.In(r) {
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			m.menu, m.typing = nil, nil
+			m.typing = nil
 		}
 		return
 	}
@@ -209,18 +198,6 @@ func (m *mixer) update(d *desk, r image.Rectangle) {
 	}
 
 	clicked := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
-	if m.menu != nil {
-		if !clicked {
-			return
-		}
-		for i, it := range m.menu.items {
-			if pt.In(m.itemRect(d, i)) {
-				it.do()
-			}
-		}
-		m.menu = nil
-		return
-	}
 
 	for _, s := range m.strips(d, r) {
 		if !pt.In(s.r) {
@@ -288,7 +265,7 @@ func (m *mixer) strip(d *desk, s strip, pt image.Point, clicked bool) {
 			row := m.send(d, s, j)
 			name, knob := m.sendParts(d, row)
 			if on(name, d.editable("Tracks", i, "Sends")) {
-				m.open(d, pt, []item{{"remove send to " + send.Bus, func() {
+				d.openMenu(pt, []item{{"remove send to " + send.Bus, func() {
 					d.edit(func(a *synth.Arrangement) {
 						a.Tracks[i].Sends = slices.Delete(a.Tracks[i].Sends, j, j+1)
 					})
@@ -382,7 +359,7 @@ func (m *mixer) outMenu(d *desk, i int, at image.Point) {
 	for _, b := range a.Buses {
 		items = append(items, item{b.Name, set(b.Name)})
 	}
-	m.open(d, at, items)
+	d.openMenu(at, items)
 }
 
 func (m *mixer) sendMenu(d *desk, i int, at image.Point) {
@@ -404,19 +381,7 @@ func (m *mixer) sendMenu(d *desk, i int, at image.Point) {
 			d.edit(func(a *synth.Arrangement) { session.AddReturn(a, i) })
 		}})
 	}
-	m.open(d, at, items)
-}
-
-// open opens a menu at the cursor, moved as far as it must be to fit the window.
-func (m *mixer) open(d *desk, at image.Point, items []item) {
-	if len(items) == 0 {
-		return
-	}
-	m.menu = &menu{items: items}
-	r := m.itemRect(d, len(items)-1)
-	at.X = min(at.X, d.w-r.Dx())
-	at.Y = min(at.Y, d.h-r.Max.Y)
-	m.menu.at = at
+	d.openMenu(at, items)
 }
 
 func (m *mixer) muteSolo(d *desk, s strip) (mute, solo image.Rectangle) {
@@ -474,11 +439,6 @@ func typeInto(t *typing) bool {
 	return false
 }
 
-func (m *mixer) itemRect(d *desk, i int) image.Rectangle {
-	w, h := int(d.px(170)), int(d.px(itemH))
-	return image.Rect(m.menu.at.X, m.menu.at.Y+i*h, m.menu.at.X+w, m.menu.at.Y+(i+1)*h)
-}
-
 func (m *mixer) draw(dst *ebiten.Image, d *desk, r image.Rectangle) {
 	if r.Empty() {
 		return
@@ -501,17 +461,6 @@ func (m *mixer) draw(dst *ebiten.Image, d *desk, r image.Rectangle) {
 		}
 		fill(area, s.r, bg)
 		m.drawStrip(area, d, s)
-	}
-	if m.menu != nil {
-		for i, it := range m.menu.items {
-			b := m.itemRect(d, i)
-			c := button
-			if image.Pt(ebiten.CursorPosition()).In(b) {
-				c = hovered
-			}
-			fill(dst, b, c)
-			drawText(dst, d.fonts.text, it.label, float64(b.Min.X)+d.px(8), float64(b.Min.Y+b.Dy()/2), ink, text.AlignStart)
-		}
 	}
 }
 

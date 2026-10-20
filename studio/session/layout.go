@@ -41,7 +41,9 @@ type Lane struct {
 // Block is one play of a clip, Times over, with the notes it plays there.
 type Block struct {
 	Clip     string
+	Play     int // its index in the track's Play
 	From, To float64
+	Passes   []float64 // where each pass after the first begins
 	Hit      bool
 	Notes    []synth.Note
 }
@@ -71,14 +73,17 @@ func Arranged(a synth.Arrangement) Layout {
 	for i, t := range a.Tracks {
 		lane := Lane{Name: t.Name, Out: t.Out, Level: t.Level, Mute: t.Mute}
 		notes := parts[i].Notes
-		for _, p := range t.Play {
+		for k, p := range t.Play {
 			c, ok := clip(t, p.Clip)
 			if !ok {
 				continue
 			}
 			from := BarTime(m, p.Bar-1)
 			to := BarTime(m, p.Bar-1+max(p.Times, 1)*clipBars(c))
-			b := Block{Clip: p.Clip, From: from, To: to, Hit: c.Hit != ""}
+			b := Block{Clip: p.Clip, Play: k, From: from, To: to, Hit: c.Hit != ""}
+			for n := 1; n < p.Times; n++ {
+				b.Passes = append(b.Passes, BarTime(m, p.Bar-1+n*clipBars(c)))
+			}
 			for _, n := range notes {
 				if n.At >= from-early && n.At < to-early {
 					b.Notes = append(b.Notes, n)

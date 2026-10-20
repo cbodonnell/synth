@@ -203,6 +203,9 @@ bakes a file per take.
   ostinato ticking against an E pedal while the chords move beneath it, the swell box
   breathing open and shut again by the loop's seam, a pedalled grand rolling the chords
   and singing a tune an octave above.
+- `longlight.go`, "Long Light", flywheel's theme (ID `theme`): downtempo in G at 100, a
+  chorused pad and arp pumping off the kick, a picked bass, a clean guitar in
+  dotted-eighth echoes. Ported from code note for note; its noise is a different take.
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
   in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
   through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).
@@ -264,3 +267,19 @@ edit and its undo are byte for byte. Accents are the velocity lane's three level
 ratchet is one note, halving the step loses nothing (doubling needs every note on the
 longer step), and step input (Ctrl/Cmd+E) types at a cursor. `session.Scale` reads the
 song's `Key`: the lit keys, how new notes are spelled, and the triad and seventh stamps.
+
+Arranging goes through `Doc.Arrange` rather than `Edit`: it keeps an edit only if the
+arrangement still validates and the save wouldn't write over code (`ErrCode`), and
+otherwise the status bar says why, so a drag simply stops where a play would overlap or
+a clip's bars wouldn't fill the meter. `session`'s arranging funcs (`arrange.go`) work on
+passes: `reflow` moves each pass of each play bar by bar, rejoining the passes of a play
+that stay back to back, and moves literal automation (`Points`, `TapeStop`, a
+`Sidechain`'s `Hits`) with the bars it sits in. Sections grow and shrink by whole turns
+of the meter (`SectionBars`) so an irregular meter keeps its place. On the timeline,
+plays drag by bars (Alt copies), their end drags `Times`, Ctrl/Cmd+D repeats one,
+Delete deletes it (and its clip once nothing plays it), double-clicking an empty lane
+adds a one-bar clip, and right-click opens a play's or a section's menu (make unique,
+insert, duplicate, delete, loop from here). A section's end drags its length; the loop
+brace's start drops onto a section. Tempo and meter are typed in the transport. The
+writer adds items to a list written several to a line back into its row, and writes a
+float that ten digits can't hold as the fraction it is (`1.0 / 3`).

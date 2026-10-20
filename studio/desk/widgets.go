@@ -33,8 +33,8 @@ const (
 type widgets struct {
 	root *ebui.BaseContainer
 
-	play, loop, click, undo, redo, save, mixer, reload *ebui.Button
-	position, tempo, meter, key, loudness, progress    *ebui.Label
+	play, loop, click, undo, redo, save, mixer, reload, tempo, meter *ebui.Button
+	position, key, loudness, progress                                *ebui.Label
 	items                                              map[string]*ebui.Button
 	status                                             *ebui.Label
 
@@ -87,8 +87,8 @@ func buildWidgets(d *desk) *widgets {
 	})
 	ws.position = ebui.NewLabel("", ebui.WithSize(px(96), px(buttonH)), ebui.WithColor(ink), ebui.WithJustify(ebui.JustifyCenter), ebui.WithFont(d.fonts.mono))
 	bar.AddChild(ws.position)
-	ws.tempo = label(70)
-	ws.meter = label(72)
+	ws.tempo = button("", 76, d.editTempo)
+	ws.meter = button("", 72, d.editMeter)
 	ws.key = label(120)
 	ws.click = button("Click", 56, d.toggleClick)
 	ws.loudness = label(130)
@@ -208,12 +208,20 @@ func (ws *widgets) refresh(d *desk) {
 	ws.position.SetText(session.Format(s, d.view.At))
 
 	timed := session.Timed(s)
-	ws.tempo.SetText("")
-	ws.meter.SetText("")
+	ws.tempo.SetLabel("")
+	ws.meter.SetLabel("")
 	if timed {
-		ws.tempo.SetText(fmt.Sprintf("%g bpm", math.Round(l.Tempo*100)/100))
-		ws.meter.SetText(meterText(l.Meter))
+		ws.tempo.SetLabel(fmt.Sprintf("%g bpm", math.Round(l.Tempo*100)/100))
+		ws.meter.SetLabel(session.FormatMeter(l.Meter))
 	}
+	if text, ok := d.typed("tempo"); ok {
+		ws.tempo.SetLabel(text)
+	}
+	if text, ok := d.typed("meter"); ok {
+		ws.meter.SetLabel(text)
+	}
+	toggle(ws.tempo, d.typing != nil && d.typing.id == "tempo")
+	toggle(ws.meter, d.typing != nil && d.typing.id == "meter")
 	ws.key.SetText(l.Key)
 
 	switch {
@@ -230,7 +238,7 @@ func (ws *widgets) refresh(d *desk) {
 		ws.progress.SetText("")
 	}
 
-	hint := "click a clip to edit it · space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · Z fit · B browser · cmd+wheel zoom · cmd+Z undo · cmd+S save"
+	hint := "click a clip to edit it · click the tempo or meter to type it · space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · Z fit · B browser · cmd+wheel zoom · cmd+Z undo · cmd+S save"
 	if d.view.Mixer {
 		hint = "drag faders and knobs (shift: fine) · double-click resets · click a value to type it · " + hint
 	}
@@ -240,6 +248,12 @@ func (ws *widgets) refresh(d *desk) {
 	if d.view.Mixer && d.mx.hint != "" {
 		hint = d.mx.hint
 	}
+	if !d.view.Mixer && d.tl.hint != "" {
+		hint = d.tl.hint
+	}
+	if d.typing != nil {
+		hint = "type, then return · esc leaves it as it was"
+	}
 	if image.Pt(ebiten.CursorPosition()).In(d.ce.r) && d.ce.hint != "" {
 		hint = d.ce.hint
 	}
@@ -247,21 +261,6 @@ func (ws *widgets) refresh(d *desk) {
 		hint = d.note + "   ·   " + hint
 	}
 	ws.status.SetText(d.buildStatus() + "   ·   " + hint)
-}
-
-// meterText writes beats per bar, irregular bars joined: 4/4, or 3+3+3+4.
-func meterText(bars []int) string {
-	if len(bars) == 0 {
-		return "4/4"
-	}
-	if len(bars) == 1 {
-		return fmt.Sprintf("%d/4", bars[0])
-	}
-	var parts []string
-	for _, b := range bars {
-		parts = append(parts, fmt.Sprint(b))
-	}
-	return strings.Join(parts, "+")
 }
 
 // drawUnder fills the panels the controls sit on.
