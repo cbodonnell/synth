@@ -7,7 +7,7 @@ import (
 )
 
 func Arrangements() []synth.Arrangement {
-	return []synth.Arrangement{goldenBrown, amberHours, playaSunrise, lavaLamp, brighterDays, smokeSignal, woodlands, interstellar, longLight}
+	return []synth.Arrangement{goldenBrown, amberHours, playaSunrise, lavaLamp, brighterDays, smokeSignal, woodlands, interstellar, longLight, daybreak}
 }
 
 func Songs() []synth.Song {

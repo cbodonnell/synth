@@ -206,6 +206,10 @@ bakes a file per take.
 - `longlight.go`, "Long Light", flywheel's theme (ID `theme`): downtempo in G at 100, a
   chorused pad and arp pumping off the kick, a picked bass, a clean guitar in
   dotted-eighth echoes. Ported from code note for note; its noise is a different take.
+- `daybreak.go`, "Daybreak": Long Light's sister at sunrise on the beach, downtempo in
+  D at 108 with none of its instruments (`patches/downtempo.go`): a wowing tape pad,
+  FM glass plucks opening through an `AutoFilter`, a picked bass, a gliding monosynth
+  lead, vibraphone, surf and birds. B drops the drums and builds back on a roll.
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
   in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
   through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).
