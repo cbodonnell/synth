@@ -210,6 +210,11 @@ bakes a file per take.
   D at 108 with none of its instruments (`patches/downtempo.go`): a wowing tape pad,
   FM glass plucks opening through an `AutoFilter`, a picked bass, a gliding monosynth
   lead, vibraphone, surf and birds. B drops the drums and builds back on a roll.
+- `goldenhour.go`, "Golden Hour": the third downtempo sibling, the main stage at
+  sundown in A major at 110 (`patches/downtempo.go` again, all new voices): a reedy FM
+  lead singing a 3-3-2 hook, a kalimba ticking that rhythm and doubling the hook at the
+  end, a clean guitar into dotted-eighth echoes, a swell pad, a round synth bass, a
+  tight kit, and a distant crowd under the intro and the breakdown.
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
   in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
   through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).
