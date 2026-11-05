@@ -3,6 +3,7 @@ module github.com/cbodonnell/synth
 go 1.25.4
 
 require (
+	github.com/cbodonnell/aac v0.0.0-20261105011222-157e49c94750
 	github.com/cbodonnell/ebui v0.4.1
 	github.com/hajimehoshi/ebiten/v2 v2.9.8
 	github.com/stretchr/testify v1.12.1

@@ -255,12 +255,15 @@ literal (by its `ID`, in the source dirs `go list -deps` gives) and refuses one 
 doesn't write the running build's value. `Edit` applies a func to a deep copy as one
 undo step (`Hold`/`Release` make a drag one), 200 deep. `Custom` says whether a field is
 code (a call, a var, arithmetic) rather than a literal, so the window shows it but
-doesn't edit it. A save diffs the doc as last saved against the doc now, matching list
-items by name (a Send by its bus) or by equality, and splices `literal` source over only
-what changed, found by `go/ast` position; the result is gofmted, read back to the doc,
-and written by rename, or refused if the file changed on disk. Write numbers rounded to
-the control's resolution (`session.Round`): `literal` writes ten significant digits, so
-last-bit noise fails the read back. `session.Docs` holds the docs open, keeping others
+doesn't edit it. The literal is read and written through `golit`, from
+[aac](https://github.com/cbodonnell/aac) (`studio/session/lit.go` holds synth's spellings:
+its constants and effects; with `Inline` and `Declared`, so new lists stay on one line when
+they fit and new fields go in the order declared), with undo on aac's `edit.History`. A save
+matches list items by name (a Send by its bus) or by equality, giving golit each list's
+origins, and golit splices source over only what changed; the result is gofmted, read back
+to the doc, and written by rename, or refused if the file changed on disk. Write numbers
+rounded to the control's resolution (`session.Round`): golit writes a float exactly, so
+last-bit noise would reach the source. `session.Docs` holds the docs open, keeping others
 in a saved file savable; the watcher leaves the studio's own saves out (`Saved`), and a
 build that finishes behind unsaved edits waits for "Reload, dropping unsaved edits".
 The mixer (`X`) is the desk's `mixer`, hand-drawn like the timeline: faders, pan and

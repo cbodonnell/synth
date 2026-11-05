@@ -192,12 +192,8 @@ func (ws *widgets) refresh(d *desk) {
 	toggle(ws.loop, d.view.Loop)
 	toggle(ws.click, d.view.Click)
 	toggle(ws.mixer, d.view.Mixer)
-	undo, redo := 0, 0
-	if d.doc != nil {
-		undo, redo = d.doc.History()
-	}
-	enable(ws.undo, undo > 0)
-	enable(ws.redo, redo > 0)
+	enable(ws.undo, d.doc != nil && d.doc.CanUndo())
+	enable(ws.redo, d.doc != nil && d.doc.CanRedo())
 	enable(ws.save, d.doc != nil && d.doc.Dirty())
 	toggle(ws.save, d.doc != nil && d.doc.Dirty())
 	if d.waiting != nil {

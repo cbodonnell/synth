@@ -4,34 +4,41 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"go/ast"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 
+	"github.com/cbodonnell/aac/edit"
+	"github.com/cbodonnell/aac/golit"
 	"github.com/cbodonnell/synth"
 )
 
-// Doc is an arrangement as the studio edits it: where its literal is in the Go source,
-// the arrangement as last saved, and the edits since, which undo and redo.
+// Doc is an arrangement as the studio edits it: its literal in the Go source, read as it
+// was last saved, and the edits since, which undo and redo.
 type Doc struct {
 	Path string
-	f    *file
+	lit  *golit.Lit[synth.Arrangement]
+	src  []byte
 
-	saved, now synth.Arrangement
-	undo, redo []synth.Arrangement
+	now  synth.Arrangement
+	hist *edit.History[state]
 	// Edits are being held together as one step, and the step has been taken.
 	held, stepped bool
 	dirty         bool
 }
 
+// state is an arrangement as the undo history keeps it.
+type state struct{ a synth.Arrangement }
+
+func (s state) Clone() state { return state{clone(reflect.ValueOf(s.a)).Interface().(synth.Arrangement)} }
+
 // UndoDepth is how many edits can be undone.
-const UndoDepth = 200
+const UndoDepth = edit.MaxHistory
 
 // ErrChanged refuses a save over a file that changed on disk after it was loaded.
-var ErrChanged = errors.New("changed on disk since it was loaded")
+var ErrChanged = edit.ErrChanged
 
 // Load finds the Go file in dirs holding a's literal (a synth.Arrangement with its ID),
 // which must write a as it is: the source a was built from.
@@ -49,12 +56,15 @@ func Load(a synth.Arrangement, dirs []string) (*Doc, error) {
 			if err != nil || !bytes.Contains(src, []byte(strconv.Quote(a.ID))) {
 				continue
 			}
-			f, err := parse(path, src, a.ID)
+			f, err := golit.Parse(src)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s: %v", path, err)
 			}
-			if f != nil {
-				found = append(found, &Doc{Path: path, f: f})
+			switch n := len(arrangements(f, a.ID)); {
+			case n == 1:
+				found = append(found, &Doc{Path: path, src: src})
+			case n > 1:
+				return nil, fmt.Errorf("%s: %d arrangements with ID %q", path, n, a.ID)
 			}
 		}
 	}
@@ -66,11 +76,29 @@ func Load(a synth.Arrangement, dirs []string) (*Doc, error) {
 		return nil, fmt.Errorf("%d arrangements with ID %q in its source", len(found), a.ID)
 	}
 	d := found[0]
-	if err := d.f.check(d.f.lit, reflect.ValueOf(a), a.ID); err != nil {
-		return nil, fmt.Errorf("%s isn't the source of this build: %v", d.Path, err)
+	if err := d.read(d.src, a); err != nil {
+		return nil, err
 	}
-	d.saved, d.now = a, a
+	if !reflect.DeepEqual(d.lit.Value, a) {
+		return nil, fmt.Errorf("%s isn't the source of this build", d.Path)
+	}
+	d.now = a
+	d.hist = edit.NewHistory(state{a})
 	return d, nil
+}
+
+// read reads the literal from src, what isn't a literal taken from built.
+func (d *Doc) read(src []byte, built synth.Arrangement) error {
+	f, err := golit.Parse(src)
+	if err != nil {
+		return fmt.Errorf("%s: %v", d.Path, err)
+	}
+	lit, err := golit.ReadAt(f, findArrangement(built.ID), built, spellings)
+	if err != nil {
+		return fmt.Errorf("%s: %v", d.Path, err)
+	}
+	d.lit, d.src = lit, src
+	return nil
 }
 
 // Now is the arrangement as edited. It's shared: edit it with Edit.
@@ -103,38 +131,34 @@ func (d *Doc) Arrange(f func(a *synth.Arrangement) error) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
-	w := &writer{file: d.f}
-	w.diff(d.f.lit, reflect.ValueOf(d.saved), reflect.ValueOf(next), true)
-	if w.code {
+	if diff(d.lit, next).code {
 		return ErrCode
 	}
 	d.take(next)
 	return nil
 }
 
-func (d *Doc) copy() synth.Arrangement {
-	return clone(reflect.ValueOf(d.now)).Interface().(synth.Arrangement)
-}
+func (d *Doc) copy() synth.Arrangement { return state{d.now}.Clone().a }
 
 // take makes next the arrangement, as a step to undo, reporting whether it changed.
 func (d *Doc) take(next synth.Arrangement) bool {
 	if reflect.DeepEqual(next, d.now) {
 		return false
 	}
-	if !d.held || !d.stepped {
-		d.undo = append(d.undo, d.now)
-		if len(d.undo) > UndoDepth {
-			d.undo = d.undo[len(d.undo)-UndoDepth:]
-		}
+	if d.held && d.stepped {
+		d.hist.Amend(state{next})
+	} else {
+		d.hist.Push(state{next})
 		d.stepped = true
 	}
-	d.redo = nil
 	d.set(next)
 	return true
 }
 
-// History is how many edits there are to undo and to redo.
-func (d *Doc) History() (undo, redo int) { return len(d.undo), len(d.redo) }
+// CanUndo and CanRedo report whether there's an edit to undo and to redo.
+func (d *Doc) CanUndo() bool { return d.hist.CanUndo() }
+
+func (d *Doc) CanRedo() bool { return d.hist.CanRedo() }
 
 // Hold makes the edits until Release one step, as a drag or typing into a field is.
 func (d *Doc) Hold() { d.held, d.stepped = true, false }
@@ -142,55 +166,44 @@ func (d *Doc) Hold() { d.held, d.stepped = true, false }
 func (d *Doc) Release() { d.held = false }
 
 func (d *Doc) Undo() bool {
-	if len(d.undo) == 0 {
-		return false
+	s, ok := d.hist.Undo()
+	if ok {
+		d.set(s.a)
+		d.stepped = false
 	}
-	d.redo = append(d.redo, d.now)
-	d.set(d.undo[len(d.undo)-1])
-	d.undo = d.undo[:len(d.undo)-1]
-	d.stepped = false
-	return true
+	return ok
 }
 
 func (d *Doc) Redo() bool {
-	if len(d.redo) == 0 {
-		return false
+	s, ok := d.hist.Redo()
+	if ok {
+		d.set(s.a)
+		d.stepped = false
 	}
-	d.undo = append(d.undo, d.now)
-	d.set(d.redo[len(d.redo)-1])
-	d.redo = d.redo[:len(d.redo)-1]
-	d.stepped = false
-	return true
+	return ok
 }
 
 func (d *Doc) set(a synth.Arrangement) {
 	d.now = a
-	d.dirty = !reflect.DeepEqual(d.now, d.saved)
+	d.dirty = !reflect.DeepEqual(d.now, d.lit.Value)
 }
 
 // Source is the file as a save would write it: the source as loaded, with only what
 // has been edited since spliced in, read back to the arrangement as edited.
 func (d *Doc) Source() ([]byte, error) {
+	out, _, err := d.write()
+	return out, err
+}
+
+func (d *Doc) write() ([]byte, *golit.Lit[synth.Arrangement], error) {
 	if !d.dirty {
-		return d.f.src, nil
+		return d.src, d.lit, nil
 	}
-	w := &writer{file: d.f}
-	w.diff(d.f.lit, reflect.ValueOf(d.saved), reflect.ValueOf(d.now), true)
-	out, err := w.apply()
+	out, back, err := d.lit.Write(d.now, nil, diff(d.lit, d.now).origins)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %v", d.Path, err)
+		return nil, nil, fmt.Errorf("%s: %v", d.Path, err)
 	}
-	back, err := parse(d.Path, out, d.now.ID)
-	if err == nil && back == nil {
-		err = errors.New("the arrangement is gone")
-	}
-	if err == nil {
-		err = back.check(back.lit, reflect.ValueOf(d.now), d.now.ID)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%s: the edit doesn't read back: %v", d.Path, err)
-	}
-	return out, nil
+	return out, back, nil
 }
 
 // Save writes the edits into the file, unless it has changed on disk since it was
@@ -203,46 +216,18 @@ func (d *Doc) Save() error {
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(disk, d.f.src) {
+	if !bytes.Equal(disk, d.src) {
 		return fmt.Errorf("%s: %w", d.Path, ErrChanged)
 	}
-	out, err := d.Source()
+	out, back, err := d.write()
 	if err != nil {
 		return err
 	}
-	if err := replace(d.Path, out); err != nil {
+	if err := edit.WriteFile(d.Path, out); err != nil {
 		return err
 	}
-	f, err := parse(d.Path, out, d.now.ID)
-	if err != nil {
-		return err
-	}
-	d.f, d.saved, d.dirty = f, d.now, false
+	d.lit, d.src, d.dirty = back, out, false
 	return nil
-}
-
-// replace writes the file by rename, so it's never seen half written.
-func replace(path string, src []byte) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(src); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), info.Mode().Perm()); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }
 
 // reread finds the literal again after another doc's save changed its file.
@@ -251,17 +236,13 @@ func (d *Doc) reread() error {
 	if err != nil {
 		return err
 	}
-	f, err := parse(d.Path, src, d.saved.ID)
-	if err == nil && f == nil {
-		err = errors.New("the arrangement is gone")
+	saved := d.lit.Value
+	if err := d.read(src, saved); err != nil {
+		return err
 	}
-	if err == nil {
-		err = f.check(f.lit, reflect.ValueOf(d.saved), d.saved.ID)
+	if !reflect.DeepEqual(d.lit.Value, saved) {
+		return fmt.Errorf("%s: the arrangement changed", d.Path)
 	}
-	if err != nil {
-		return fmt.Errorf("%s: %v", d.Path, err)
-	}
-	d.f = f
 	return nil
 }
 
@@ -270,52 +251,13 @@ func (d *Doc) reread() error {
 // the arrangement as edited: Custom("Tracks", 2, "Sends"). Anything the studio added is
 // literal.
 func (d *Doc) Custom(path ...any) bool {
-	var expr ast.Expr = d.f.lit
-	saved, now := reflect.ValueOf(d.saved), reflect.ValueOf(d.now)
-	for _, step := range path {
-		if expr == nil {
-			return false
-		}
-		lit := compositeOf(expr)
-		if lit == nil {
+	paths, _ := sourcePath(reflect.ValueOf(d.lit.Value), reflect.ValueOf(d.now), path)
+	for _, p := range paths {
+		if s, ok := d.lit.Spelled[p]; ok && code(s) {
 			return true
 		}
-		for saved.Kind() == reflect.Interface || saved.Kind() == reflect.Pointer {
-			saved, now = saved.Elem(), now.Elem()
-		}
-		switch s := step.(type) {
-		case string:
-			if !keyed(lit) {
-				return true
-			}
-			saved, now = saved.FieldByName(s), now.FieldByName(s)
-			expr = nil
-			if kv := field(lit, s); kv != nil {
-				expr = kv.Value
-			}
-		case int:
-			if s >= now.Len() {
-				return false
-			}
-			now = now.Index(s)
-			j := -1
-			if key, ok := itemKey(now); ok {
-				for i := range saved.Len() {
-					if k, _ := itemKey(saved.Index(i)); k == key {
-						j = i
-						break
-					}
-				}
-			} else if s < saved.Len() {
-				j = s
-			}
-			if j < 0 || j >= len(lit.Elts) {
-				return false
-			}
-			saved, expr = saved.Index(j), lit.Elts[j]
-		}
 	}
-	return expr != nil && compositeOf(expr) == nil && !d.f.plain(expr)
+	return false
 }
 
 // clone copies v deeply, so an edit to the copy never reaches v.

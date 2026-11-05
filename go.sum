@@ -1,3 +1,5 @@
+github.com/cbodonnell/aac v0.0.0-20261105011222-157e49c94750 h1:MGZU6korj6nEbqzBNEc8tn+YMonmuHHUK4GY759LrMA=
+github.com/cbodonnell/aac v0.0.0-20261105011222-157e49c94750/go.mod h1:WBv8iRFkUb0GNFBdm9E2sFjOjucXcV6gnr1HNbK1Yxk=
 github.com/cbodonnell/ebui v0.4.1 h1:YKT3gfS2cHfthQ+H5fyI4Iw2tjc6HP5zWQPpr29Zu9s=
 github.com/cbodonnell/ebui v0.4.1/go.mod h1:ut6pGi8hh6euuOdEQls5MrHs+8CzAEMuVutRehqyktI=
 github.com/ebitengine/gomobile v0.0.0-20250923094054-ea854a63cce1 h1:+kz5iTT3L7uU+VhlMfTb8hHcxLO3TlaELlX8wa4XjA0=

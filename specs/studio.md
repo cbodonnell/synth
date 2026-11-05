@@ -13,8 +13,8 @@ listening, and saves back to the same Go source. Any game that wraps `studio.Mai
    `synth.Arrangement` literal in its `.go` file, so a person's edit and an agent's
    are the same kind of diff.
 2. **Touch only what was edited.** A save splices new source over the expressions that
-   changed, found by `go/ast` position; comments, order and everything else survive
-   byte for byte.
+   changed (aac's `golit` codec); comments, order and everything else survive byte for
+   byte.
 3. **What you hear is the game.** Playback is `synth`'s own render, looping as the player
    loops it (`RenderLoop`'s intro, then the body). No preview approximation.
 4. **Literal is editable, code is respected.** A field written as a literal is a control.
@@ -195,10 +195,11 @@ variation.
 compares the doc with the doc as last saved, item by item by name (tracks, clips, plays,
 sections, buses, effects in order), and splices new source over only what changed:
 
-- A clip's `Bars` are rewritten whole, one string per line; its `Notes` one per line.
+- A clip's `Bars` are rewritten string by string where they are, one per line.
 - A changed field in a kept item is rewritten in place; a field gone to zero is removed;
-  a new one is added at the end of its literal.
-- Added items are appended to their list, one per line; deleted ones take their line,
+  a new one is added in the order the type declares it.
+- Added items go after the kept item before them, in their siblings' style (one a line,
+  in a row, or inline, a new list on one line when it fits); deleted ones take their line,
   end-of-line comment and all; a comment on a line of its own stays.
 - The result is `gofmt`ed and read back to the same doc, or nothing is written. Files are
   replaced by rename. If the file changed on disk since it was loaded, the save is

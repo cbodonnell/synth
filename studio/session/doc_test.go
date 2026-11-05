@@ -4,7 +4,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -38,9 +37,7 @@ func TestEveryArrangementLoadsAndWritesItselfBack(t *testing.T) {
 		require.NoError(t, err, a.ID)
 		src, err := os.ReadFile(d.Path)
 		require.NoError(t, err)
-		w := &writer{file: d.f}
-		w.diff(d.f.lit, reflect.ValueOf(a), reflect.ValueOf(a), true)
-		out, err := w.apply()
+		out, _, err := d.lit.Write(a, nil, nil)
 		require.NoError(t, err, a.ID)
 		assert.Equal(t, string(src), string(out), a.ID)
 	}
@@ -269,7 +266,7 @@ func TestSavesTouchOnlyWhatChanged(t *testing.T) {
 	assert.Contains(t, got, "// The bass waits for B.", "a comment on its own line stays")
 	assert.Contains(t, got, `Name: "bass", Patch: patches.Bass(), Pan: -0.2,`, "a field gone to zero is removed")
 	assert.NotContains(t, got, "a little", "a deleted item takes its end-of-line comment")
-	assert.Regexp(t, `Mute: +true,\n\t\t},`, got, "a new field goes at the end")
+	assert.Regexp(t, `// the tune\n\t+Mute: +true,\n\t+Clips:`, got, "a new field goes in the order declared")
 	assert.Contains(t, got, `Bars: []string{"C2 - -", "A1 - -"}}`, "a bar is rewritten where it is")
 	assert.Contains(t, got, "Step: 1.0 / 1,", "untouched")
 	assert.Equal(t, strings.Count(src, "\n"), strings.Count(got, "\n"))
