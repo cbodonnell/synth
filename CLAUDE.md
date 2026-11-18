@@ -29,15 +29,18 @@ make list                          # songs and sounds
 make play ID=goldenbrown           # render to a wav, print the envelope, play it (afplay)
 make play ID=kick DUMP=1           # write the wav only
 make score ID=goldenbrown          # piano roll, one column per half beat
+make export ID=goldenbrown         # a first draft of any song as a synth.Arrangement
+make edit ID=goldenbrown           # the studio's window (specs/studio.md), reloading on save
 go run ./cmd/synth -id lavalamp -stems   # each part's peak, level, and LUFS, for mixing
 go run ./cmd/synth -bake <dir>     # bake everything to Ogg Vorbis (needs oggenc)
 make demo                          # Ebiten window: Golden Brown with a beat-synced display
 ```
 
-`cmd/synth` is `studio.Main` over the example content; a game wraps `studio` around its
-own songs and sounds to get the same loop.
+`cmd/synth` is `studio.Main` over the example content (a `studio.Library`); a game wraps
+`studio` around its own songs and sounds to get the same loop.
 
-Never launch the demo to check work; cover it with tests and `make play ... DUMP=1`.
+Never launch the demo or the studio's window to check work; cover it with tests and
+`make play ... DUMP=1`.
 
 ## Architecture
 
@@ -53,7 +56,8 @@ own buffers and are summed in order, so concurrency never changes the output.
 
 `Patch` (oscillators, unison, amp envelope, state-variable filter with its own envelope,
 LFOs, pitch sweep, drive) → `Part` (notes, inserts, sends, pan) → `Bus` → DC block →
-`Song.Master` → clip. A bus is a send return (one reverb for many parts) or, with
+`Song.Master` → clip. Mix levels (`Part.Level`, `Send.Level`, `Bus.Level`) are dB, 0 is
+unity. A bus is a send return (one reverb for many parts) or, with
 `Part.Out`, a group (a drum kit compressed together). Master chains should end in a
 `Limiter`; the final clip is a safety, not a mastering tool. Effects implement `Effect`
 and start
@@ -87,9 +91,43 @@ approximate at the seam. A note starting at or after `Length` fails `Validate`.
 `Phrase.Notes` reads a step grid: `C4` a note, `Bb3,Db4,F4` a chord, `-` hold, `.` rest,
 `D5/E5` a bend or slide (over `Glide`), `F#2*3` a ratchet (three hits in one step, for hat
 rolls), `|` a bar line (needs no spaces), `!`/`?` accent and ghost. `Strum` rolls chords,
-`Swing` pushes every second step late, and `Humanize` adds reproducible drift.
+`Swing` pushes every second step late, and `Humanize` adds reproducible drift. Both count
+steps from the song's start (`At / Step`), so a line written in pieces swings and drifts
+as one.
 `Pattern("C2", "X . x o")` writes drum and strum lines.
 `MustKey` panics on a typo so a score fails when it's built.
+
+### Arrangements
+
+Songs are written as `synth.Arrangement` literals, the declarative form the studio
+(`specs/studio.md`) edits, and `Song()` compiles one to the `Song` the player and the
+bake take. `Tempo` and `Meter` make bars; `Sections` name the form in bars and give the
+song its length; `Loop` names the section the loop starts at. A `Track` is a `Part`
+whose notes are `Clip`s placed by `Play` at bars (from 1), `Times` over. A clip is a
+`Phrase`'s settings with `Step` in beats and `Bars`, one string per bar, each filling its
+bar exactly; `Hit` makes the bars a `Pattern` line (a drum, or a chord struck in a
+rhythm); `Notes` (in beats) hold what isn't on a grid; `Pedal` holds notes to the bar
+line. Song positions and durations inside effects (`Point.At`, `TapeStop`, `Delay.Time`,
+`Sidechain.Hits`) are beats, and `Sidechain.Key` names the tracks whose onsets duck it.
+`Arrangement.Validate` checks what a Song can't: unknown clips and buses, bars that
+don't fill their meter, overlapping plays.
+
+A sound effect is an arrangement with `Tempo` 0: time is seconds and there are no bars,
+sections or meter. Each layer is a track playing one clip of `Notes` at bar 1, its
+length comes from its notes, and it carries `Vary`, `Voices` and `Priority` to its
+Song. Its level is a master `Normalize{Peak}` (dB), which scales the whole render so
+its loudest sample lands there. `Arrangements()` lists the songs, then the sounds;
+`Songs()` and `Sounds()` compile each.
+
+Keep arrangements literal: a field written as a helper call or a shared var is "custom"
+to the studio, shown but not editable. Patches modified from a `patches` constructor are
+the exception, written as a small func. Plays on one track may not overlap, so lines
+with different settings that sound together (a harpsichord's two hands) are tracks of
+their own.
+
+`studio.Arrange` drafts an arrangement from any Song (`make export`): bars folded into
+clips, grids inferred, patches matched to `patches` calls. It can't recover a humanized
+line's seed, so a draft is a start, not a port.
 
 ### Playing in a game
 
@@ -147,19 +185,18 @@ bakes a file per take.
 - `amberhours.go`, "Amber Hours": an original in Golden Brown's spirit with
   Interstellar's pipe organ, a D minor harpsichord waltz in `{3, 3, 3, 4}`: recorder,
   bass, brushed kit, a ticking clock, and organ pedal, ostinato, and chords opened by an
-  `AutoFilter` swell box. Its form is a string of sections (`"AAAABBAA"`), each part
-  writing its line pass by pass.
+  `AutoFilter` swell box, in sections A A B B A A after a two-pass intro.
 - `playasunrise.go`, "Playa Sunrise": the same `{3, 3, 3, 4}` lilt taken to a desert
   festival at dawn, E mixolydian and lightly swung: handpan keeping Golden Brown's
   interlock, tanpura and didgeridoo drones, djembes and shaker, sitar and bansuri
-  sharing a hook with meend bends, a phased pad, wind, and chimes. It shares `form`
-  with Amber Hours.
+  sharing a hook with meend bends, a phased pad, wind, and chimes. Its form is Amber
+  Hours'.
 - `lavalamp.go`, "Lava Lamp Sun": a full band (kit on a group bus, Höfner-style bass,
   double-tracked phased rhythm guitars, wah-fuzz lead with bends, Leslie organ, Juno
   arp). The reference for mixing; balance with `go run ./cmd/synth -id <id> -stems`,
   which reports each part's level while it's sounding.
 - `brighterdays.go`, "Brighter Days": Avicii-style progressive house. The reference for
-  arrangement dynamics: `Sidechain` keyed by `Onsets(kick notes)` so pumping follows the
+  arrangement dynamics: `Sidechain` keyed by the kick tracks so pumping follows the
   kick, `AutoFilter` automating a build, a riser, and a build quieter than its drop.
 - `smokesignal.go`, "Smoke Signal": 2015 festival trap. Half-time drums with ratcheted
   hat rolls, a gliding distorted 808, brass, and a `TapeStop` on the parts that should
@@ -173,11 +210,26 @@ bakes a file per take.
   ostinato ticking against an E pedal while the chords move beneath it, the swell box
   breathing open and shut again by the loop's seam, a pedalled grand rolling the chords
   and singing a tune an octave above.
+- `longlight.go`, "Long Light", flywheel's theme (ID `theme`): downtempo in G at 100, a
+  chorused pad and arp pumping off the kick, a picked bass, a clean guitar in
+  dotted-eighth echoes. Ported from code note for note; its noise is a different take.
+- `daybreak.go`, "Daybreak": Long Light's sister at sunrise on the beach, downtempo in
+  D at 108 with none of its instruments (`patches/downtempo.go`): a wowing tape pad,
+  FM glass plucks opening through an `AutoFilter`, a picked bass, a gliding monosynth
+  lead, vibraphone, surf and birds. B drops the drums and builds back on a roll.
+- `goldenhour.go`, "Golden Hour": the third downtempo sibling, the main stage at
+  sundown in A major at 110 (`patches/downtempo.go` again, all new voices): a reedy FM
+  lead singing a 3-3-2 hook, a kalimba ticking that rhythm and doubling the hook at the
+  end, a clean guitar into dotted-eighth echoes, a swell pad, a round synth bass, a
+  tight kit, and a distant crowd under the intro and the breakdown.
+- `hits.go`, single notes of the `patches` library, for hearing a patch alone.
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
-  in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
-  through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).
-  Anything fired many times a second stays dry, since a reverb's faint tail holds a
-  voice for a second and the player keeps only 16. Priority follows the tiers, and
+  in `Platformer()`. The reference for sound effects: layers of transient, body, and
+  tail, leveled by a master `Normalize` per tier (UI -12 dB, movement and pickups -10
+  with the coins' bright pings at -13, combat -2, fanfares -3). `-stems` holds the
+  Normalize at the mix's gain, so each layer reads at its level in the sound. Anything
+  fired many times a second stays dry, since a reverb's faint tail holds a voice for a
+  second and the player keeps only 16. Priority follows the game's tiers, and
   whatever a game repeats (footsteps, hits, coins) varies and is capped.
 
 Drum-bus compressors undo velocity crescendos; a build's roll or soft kick belongs on
@@ -185,3 +237,111 @@ its own part off the bus.
 
 Renders are parallel per part and per note; notes land in their own buffers and are
 summed in order, so scheduling never changes a sample.
+
+### The studio
+
+`specs/studio.md` is the design, built in phases. `studio.Main -edit` runs
+`session.Supervise`, which runs the window (`studio/desk`, ebui with a dark painter of
+its own) as a child; the child watches the Go source of its own module and synth's
+(`go list -deps`), rebuilds itself when it settles, and hands off to the new build with
+its `session.View`. `studio/session` is everything without a display: a song laid out
+on the timeline (`Arranged`, or `Unarranged` for a song written as code, shown but not
+editable), transport arithmetic, and `Renders`, which renders what's heard (`Mix`: the
+loop, solo, the metronome, none of which reach the song) on a goroutine through a
+`synth.Renderer`. A Renderer is `Render` and `RenderLoop` with a cache of notes, parts
+and buses keyed by exactly what they render from; `Render` itself is a nil Renderer, so
+the two can't drift. It keeps buffers without their silent ends and lets go of what the
+last two renders didn't use; `Budget` caps the memory it keeps (the window's `-cache`,
+256MB), shedding what's cheapest to render again per byte, and `Spill` puts parts and
+buses in memory-mapped files, deleted as they're made, which the system pages out
+under pressure like a DAW's frozen tracks. Top-level renders take turns, so a mapping is
+never released under a render reading it.
+Playback is the player's `Preview`, a voice that plays a buffer from any frame, loops a
+region, and crossfades a new render in at its position. Meters read `synth.Gauge`s of
+each part, each bus and the mix at the playhead.
+
+Edits go through a `session.Doc`: `Load` finds the file holding the arrangement's
+literal (by its `ID`, in the source dirs `go list -deps` gives) and refuses one that
+doesn't write the running build's value. `Edit` applies a func to a deep copy as one
+undo step (`Hold`/`Release` make a drag one), 200 deep. `Custom` says whether a field is
+code (a call, a var, arithmetic) rather than a literal, so the window shows it but
+doesn't edit it. The literal is read and written through `golit`, from
+[aac](https://github.com/cbodonnell/aac) (`studio/session/lit.go` holds synth's spellings:
+its constants and effects; with `Inline` and `Declared`, so new lists stay on one line when
+they fit and new fields go in the order declared), with undo on aac's `edit.History`. A save
+matches list items by name (a Send by its bus) or by equality, giving golit each list's
+origins, and golit splices source over only what changed; the result is gofmted, read back
+to the doc, and written by rename, or refused if the file changed on disk. Write numbers
+rounded to the control's resolution (`session.Round`): golit writes a float exactly, so
+last-bit noise would reach the source. `session.Docs` holds the docs open, keeping others
+in a saved file savable; the watcher leaves the studio's own saves out (`Saved`), and a
+build that finishes behind unsaved edits waits for "Reload, dropping unsaved edits".
+The mixer (`X`) is the desk's `mixer`, hand-drawn like the timeline: faders, pan and
+send knobs, outs, mute (`Track.Mute`, saved) and solo (the studio's).
+
+Clicking a clip opens the clip editor (`clipEditor`) beneath the arrangement: a piano
+roll, or for a `Hit` clip a drum grid, over a velocity lane, beside the clip's settings.
+It edits a `session.Grid`, the clip's bars read as one line of events (a note, chord or
+hit struck on a step and held for its holds), so a note drawn under a held one cuts it
+short. `Grid.Write` writes back only the bars that changed, keeping each token as written
+while it says the same, and the writer splices a changed bar string in place, so an
+edit and its undo are byte for byte. Accents are the velocity lane's three levels, a
+ratchet is one note, halving the step loses nothing (doubling needs every note on the
+longer step), and step input (Ctrl/Cmd+E) types at a cursor. `session.Scale` reads the
+song's `Key`: the lit keys, how new notes are spelled, and the triad and seventh stamps.
+A clip of `Notes` opens in `notes.go`'s roll without a grid: notes at free times in the
+clip's own time (beats, or seconds in a sound), snapped to a step from `session.Snaps`
+(off, 10ms or 50ms in a sound). Notes keep the order written, so a save rewrites only
+those an edit touched.
+
+A sound (`sound.go`) has a ruler in milliseconds, no sections, and an inspector beside
+the clip editor for `Vary`, `Voices` and `Priority`. Play auditions it through
+`player.Audition`, `Play`'s variation, voice cap and priority over the studio's own
+renders of its takes, so each press is a fresh take and pitch; `R` repeats it every
+300ms until pressed again. Solo holds a master `Normalize` at the whole mix's gain
+(`session.StemMaster`), so a soloed layer plays at its level in the sound.
+
+Arranging goes through `Doc.Arrange` rather than `Edit`: it keeps an edit only if the
+arrangement still validates and the save wouldn't write over code (`ErrCode`), and
+otherwise the status bar says why, so a drag simply stops where a play would overlap or
+a clip's bars wouldn't fill the meter. `session`'s arranging funcs (`arrange.go`) work on
+passes: `reflow` moves each pass of each play bar by bar, rejoining the passes of a play
+that stay back to back, and moves literal automation (`Points`, `TapeStop`, a
+`Sidechain`'s `Hits`) with the bars it sits in. Sections grow and shrink by whole turns
+of the meter (`SectionBars`) so an irregular meter keeps its place. On the timeline,
+plays drag by bars (Alt copies), their end drags `Times`, Ctrl/Cmd+D repeats one,
+Delete deletes it (and its clip once nothing plays it), double-clicking an empty lane
+adds a one-bar clip, and right-click opens a play's or a section's menu (make unique,
+insert, duplicate, delete, loop from here). A section's end drags its length; the loop
+brace's start drops onto a section. Tempo and meter are typed in the transport. The
+writer adds items to a list written several to a line back into its row, and writes a
+float that ten digits can't hold as the fraction it is (`1.0 / 3`).
+
+Automation is any `[]Point` field of an effect, synth's or a game's, found by reflection
+(`session.Automations`; `Song()` and `reflow` scale and move them the same way). Each is
+a lane beneath its track, its group bus's header, or after the tracks for other buses and
+the master, drawn on its `synth.Params` scale (log for Hz); `A` hides them. Points are
+added, dragged (snapped to a beat grid that follows the zoom, Shift off it) and deleted
+through `AddPoint`, `MovePoint` (which keeps them in `At` order and returns where the
+dragged one went) and `DeletePoint`. Caps Lock is musical typing (`desk/keyboard.go`):
+the selected track's patch is rendered for the octave's keys ahead of time and held
+through `player.Hold`, a voice faded out over the patch's release when the key lifts;
+step input shares its keys, octave and velocity. On macOS a trackpad's pinch never
+reaches Ebiten, so the window adds its own magnify-event monitor (`pinch_darwin.go`).
+`Library.Bake` names the game's bake directory; with it the transport's Bake button is
+lit while `bake.Stale` lists anything, and rebakes on a goroutine (`session.Baker`) the
+songs as saved.
+
+`Shift+Tab` turns the detail into the device chain (`desk/devices.go`): the selected
+track's patch device and its inserts, or a bus's or the master's effects (picked by its
+strip's name in the mixer). Controls come from `synth.Params` (each field's unit, range,
+scale, what 0 means, and resolution), or by reflection for a game's own effects
+(`session.Controls`: numbers as knobs, enums as cyclers, bools as toggles, `[]Point` as
+its lane); values are set by path (`session.Set`), parsed as typed ("3k", "250 ms",
+"-6 dB") and written at the control's resolution. A patch or effect written as code is
+shown read-only with "Make literal" (`Doc.MakeLiteral`). The browser's Patches drop onto
+a track (`Doc.SetPatch`, written as the `patches` call, the import added or dropped as
+needed) or empty space (`Doc.AddTrack`), and its Effects into a chain. A Doc's undo
+steps carry which paths are spelled as code, following their values through an edit, so
+making a call literal and undoing it writes the call back byte for byte; golit's `Hug`
+closes a new struct on its trailing list's last line.

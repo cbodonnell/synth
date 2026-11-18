@@ -23,8 +23,8 @@ func fall(x float64) float64 {
 func (e Envelope) attack() float64  { return math.Max(e.Attack, minAttack) }
 func (e Envelope) release() float64 { return math.Max(e.Release, minRelease) }
 
-// level is the envelope t seconds after note-on, with the key released at off.
-func (e Envelope) level(t, off float64) float64 {
+// Level is the envelope t seconds after note-on, with the key released at off.
+func (e Envelope) Level(t, off float64) float64 {
 	if t < 0 {
 		return 0
 	}

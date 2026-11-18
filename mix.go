@@ -1,18 +1,13 @@
 package synth
 
-import (
-	"hash/fnv"
-	"math"
-	"runtime"
-	"sync"
-)
+import "math"
 
 // Part is one instrument's line: a patch, the notes it plays, and where it goes in the mix.
 type Part struct {
 	Name    string // also seeds its noise, so renaming a part changes its texture
 	Patch   Patch
 	Notes   []Note
-	Gain    float64 // 0 means 1
+	Level   float64 // dB; 0 is unity
 	Pan     float64 // -1..1
 	Inserts []Effect
 	Sends   []Send
@@ -24,14 +19,14 @@ type Part struct {
 
 type Send struct {
 	Bus   string
-	Level float64
+	Level float64 // dB; 0 is unity
 }
 
 // Bus is a shared effect return, such as one reverb that several parts send to.
 type Bus struct {
 	Name    string
 	Effects []Effect
-	Gain    float64 // 0 means 1
+	Level   float64 // dB; 0 is unity
 }
 
 // Song is a finished piece, or a one-shot sound effect: anything that renders.
@@ -83,13 +78,6 @@ func Take(s Song, n int) Song {
 	return s
 }
 
-func gainOr1(g float64) float32 {
-	if g == 0 {
-		return 1
-	}
-	return float32(g)
-}
-
 // end is when the last note falls silent, ignoring effect tails.
 func (s Song) end() float64 {
 	end := 0.0
@@ -118,160 +106,6 @@ func (s Song) tail() float64 {
 		buses = math.Max(buses, chainTail(b.Effects))
 	}
 	return parts + buses + chainTail(s.Master)
-}
-
-// Render plays the song once from silence until everything has died away.
-func Render(s Song) Stereo {
-	out := mixdown(s, s.Parts, samples(math.Max(s.Length, s.end())+s.tail()))
-	trimSilence(&out, samples(s.Length))
-	clip(out)
-	return out
-}
-
-// Looped is a looping song split the way the player plays it: Intro once, then Body forever.
-type Looped struct {
-	// Plays once: everything before LoopStart and then the first pass through the
-	// loop, which starts from silence rather than from the loop's own tail.
-	Intro Stereo
-	// Repeats forever. Its own tail is wrapped onto its start, so the seam is continuous.
-	Body Stereo
-}
-
-func RenderLoop(s Song) Looped {
-	total := samples(s.Length)
-	start := min(samples(s.LoopStart), total)
-	body := total - start
-	if body <= 0 {
-		return Looped{Intro: Render(s)}
-	}
-	ring := samples(s.end()+s.tail()) + 1
-
-	intro := mixdown(s, s.Parts, max(total, ring))
-	intro = Stereo{L: intro.L[:total], R: intro.R[:total]}
-
-	var loopParts []Part
-	for _, p := range s.Parts {
-		lp := p
-		lp.Notes = nil
-		for _, n := range p.Notes {
-			if n.At >= s.LoopStart {
-				lp.Notes = append(lp.Notes, n)
-			}
-		}
-		loopParts = append(loopParts, lp)
-	}
-	full := mixdown(s, loopParts, max(total, ring))
-
-	looped := NewStereo(body)
-	for i := start; i < full.Len(); i++ {
-		j := (i - start) % body
-		looped.L[j] += full.L[i]
-		looped.R[j] += full.R[i]
-	}
-
-	clip(intro)
-	clip(looped)
-	return Looped{Intro: intro, Body: looped}
-}
-
-func mixdown(s Song, parts []Part, n int) Stereo {
-	master := NewStereo(n)
-	if n == 0 {
-		return master
-	}
-
-	rendered := make([]Stereo, len(parts))
-	var wg sync.WaitGroup
-	for i, p := range parts {
-		wg.Go(func() { rendered[i] = renderPart(p, s.take, n) })
-	}
-	wg.Wait()
-
-	buses := make(map[string]Stereo, len(s.Buses))
-	for _, b := range s.Buses {
-		buses[b.Name] = NewStereo(n)
-	}
-	for i, p := range parts {
-		g := gainOr1(p.Gain)
-		dst := master
-		if bus, ok := buses[p.Out]; ok {
-			dst = bus
-		}
-		dst.add(rendered[i], g)
-		for _, send := range p.Sends {
-			if bus, ok := buses[send.Bus]; ok {
-				bus.add(rendered[i], g*float32(send.Level))
-			}
-		}
-	}
-	for _, b := range s.Buses {
-		buf := buses[b.Name]
-		for _, e := range b.Effects {
-			e.Process(buf)
-		}
-		master.add(buf, gainOr1(b.Gain))
-	}
-	blockDC(master)
-	for _, e := range s.Master {
-		e.Process(master)
-	}
-	return master
-}
-
-func renderPart(p Part, take, n int) Stereo {
-	h := fnv.New64a()
-	h.Write([]byte(p.Name))
-	seed := h.Sum64()
-	if take > 0 {
-		seed = mixSeed(seed, uint64(take))
-	}
-
-	// Notes render concurrently into buffers of their own and are summed in order,
-	// so the result is identical however the work was scheduled.
-	notes := make([]Stereo, len(p.Notes))
-	work := make(chan int)
-	var wg sync.WaitGroup
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for ni := range work {
-				notes[ni] = renderNote(p, p.Notes[ni], seed, n)
-			}
-		})
-	}
-	for ni := range p.Notes {
-		work <- ni
-	}
-	close(work)
-	wg.Wait()
-
-	out := NewStereo(n)
-	for ni, buf := range notes {
-		start := samples(p.Notes[ni].At)
-		for i := range buf.L {
-			out.L[start+i] += buf.L[i]
-			out.R[start+i] += buf.R[i]
-		}
-	}
-	for _, e := range p.Inserts {
-		e.Process(out)
-	}
-	return out
-}
-
-func renderNote(p Part, note Note, partSeed uint64, songLength int) Stereo {
-	start := samples(note.At)
-	length := min(samples(noteLength(p.Patch, note)), songLength-start)
-	if length <= 0 {
-		return Stereo{}
-	}
-	buf := NewStereo(length)
-	// Seeded by the note itself, not its index, so RenderLoop's loop-only pass
-	// renders each note exactly as the full pass does.
-	seed := mixSeed(partSeed, math.Float64bits(note.At), math.Float64bits(note.Key))
-	for _, v := range unisonVoices(p.Patch.Unison, p.Pan, seed) {
-		renderVoice(buf, 0, p.Patch, note, v)
-	}
-	return buf
 }
 
 // ~10Hz: AC coupling, so a pulse wave's off-center average never reaches the speaker.

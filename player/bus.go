@@ -20,13 +20,14 @@ const (
 type bus struct {
 	mu             sync.Mutex
 	music, effects *stream
+	preview        *Preview
 	limit          limiter
 	pos            int64
 	m, e           []float32
 }
 
-func newBus(music, effects *stream, ceilingDB float64) *bus {
-	return &bus{music: music, effects: effects, limit: newLimiter(ceilingDB, limiterRelease)}
+func newBus(music, effects *stream, preview *Preview, ceilingDB float64) *bus {
+	return &bus{music: music, effects: effects, preview: preview, limit: newLimiter(ceilingDB, limiterRelease)}
 }
 
 func (b *bus) Read(p []byte) (int, error) {
@@ -42,6 +43,7 @@ func (b *bus) Read(p []byte) (int, error) {
 	for i := range m {
 		m[i] += e[i]
 	}
+	b.preview.mix(m)
 	b.limit.process(m)
 	b.pos += int64(n)
 	putFloats(p, m)

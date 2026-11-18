@@ -8,6 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEveryArrangementIsValid(t *testing.T) {
+	for _, a := range Arrangements() {
+		assert.NoError(t, a.Validate(), a.ID)
+	}
+}
+
 func TestEverySongAndSoundRenders(t *testing.T) {
 	seen := map[string]bool{}
 	for _, s := range append(Songs(), Sounds()...) {

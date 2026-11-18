@@ -88,6 +88,7 @@ func Baked(fsys fs.FS) Option {
 // and limits the two for the one output.
 type Player struct {
 	music, effects *stream
+	preview        *Preview
 	bus            *bus
 	out            output
 	ceiling        float64
@@ -108,6 +109,7 @@ type Player struct {
 func New(opts ...Option) *Player {
 	p := &Player{
 		music:   newStream(0, 0),
+		preview: newPreview(),
 		effects: newStream(1, maxEffects),
 		cache:   make(map[string]*rendered),
 		rng:     rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
@@ -120,10 +122,14 @@ func New(opts ...Option) *Player {
 		o(p)
 	}
 	p.music.hold = true
-	p.bus = newBus(p.music, p.effects, p.ceiling)
+	p.bus = newBus(p.music, p.effects, p.preview, p.ceiling)
 	p.out = newOutput(p.bus, p.buffer, p.latency)
+	p.preview.heard = p.out.played
 	return p
 }
+
+// Preview is the voice the studio plays songs through as it edits them.
+func (p *Player) Preview() *Preview { return p.preview }
 
 // Prepare renders songs, and every take of a sound, in the background, so the first
 // play doesn't wait on them.
@@ -290,17 +296,30 @@ func (p *Player) MusicPosition() (time.Duration, bool) {
 // Play renders an uncached effect on the spot. Effects are short, but Prepare them anyway
 // if one must land on the frame it's triggered.
 func (p *Player) Play(s synth.Song, gain float64) {
+	p.play(s, gain, func(take int) []float32 {
+		r := p.render(s, take)
+		<-r.done
+		return r.pcm
+	})
+}
+
+// Audition plays a sound as Play does, varied and capped, but from render's takes of it
+// rather than the player's: the studio's, which follow its edits.
+func (p *Player) Audition(s synth.Song, gain float64, render func(take int) synth.Stereo) {
+	p.play(s, gain, func(take int) []float32 { return interleave(render(take)) })
+}
+
+func (p *Player) play(s synth.Song, gain float64, pcm func(take int) []float32) {
 	p.mu.Lock()
 	take, rate, g := vary(s.Vary, p.rng, p.lastTake(s.ID))
 	p.last[s.ID] = take
 	p.mu.Unlock()
 
-	r := p.render(s, take)
-	<-r.done
-	if len(r.pcm) == 0 {
+	buf := pcm(take)
+	if len(buf) == 0 {
 		return
 	}
-	v := newVoice(s.ID, &memory{pcm: r.pcm}, rate, gain*g)
+	v := newVoice(s.ID, &memory{pcm: buf}, rate, gain*g)
 	v.priority = s.Priority
 	p.effects.play(v, s.Voices)
 }

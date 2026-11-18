@@ -1,0 +1,313 @@
+package desk
+
+import (
+	"fmt"
+	"image"
+	"math"
+	"strings"
+
+	"github.com/cbodonnell/ebui"
+	"github.com/cbodonnell/synth/studio/session"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
+)
+
+// Sizes in points, before the window's scale.
+const (
+	transportH = 40
+	browserW   = 190
+	statusH    = 24
+	buttonH    = 26
+	itemH      = 24
+	outputRows = 14
+)
+
+// More roles, for the browser's list.
+const (
+	roleItem   = "item"
+	roleItemOn = "item on"
+)
+
+// widgets are the controls ebui lays out: the transport along the top, the browser down
+// the left, and the status bar along the bottom. The timeline fills what's left.
+type widgets struct {
+	root *ebui.BaseContainer
+
+	play, loop, click, undo, redo, save, mixer, reload, tempo, meter *ebui.Button
+	position, key, loudness, progress                                *ebui.Label
+	items                                                            map[string]*ebui.Button
+	status                                                           *ebui.Label
+	bake                                                             *ebui.Button // nil without a bake directory
+
+	transport, browser, statusBar, timeline, detail image.Rectangle
+}
+
+func buildWidgets(d *desk) *widgets {
+	px := d.px
+	w, h := float64(d.w), float64(d.h)
+	ws := &widgets{root: ebui.NewBaseContainer(ebui.WithSize(w, h)), items: map[string]*ebui.Button{}}
+
+	ws.transport = image.Rect(0, 0, d.w, int(px(transportH)))
+	ws.statusBar = image.Rect(0, d.h-int(px(statusH)), d.w, d.h)
+	left := 0
+	if d.view.Browser {
+		left = int(px(browserW))
+		ws.browser = image.Rect(0, ws.transport.Max.Y, left, ws.statusBar.Min.Y)
+	}
+	bottom := ws.statusBar.Min.Y
+	if d.detailOpen() {
+		h := int(math.Max(px(detailH), float64(bottom-ws.transport.Max.Y)*0.42))
+		ws.detail = image.Rect(left, bottom-h, d.w, bottom)
+		bottom -= h
+	}
+	ws.timeline = image.Rect(left, ws.transport.Max.Y, d.w, bottom)
+
+	bar := ebui.NewLayoutContainer(
+		ebui.WithSize(w, px(transportH)),
+		ebui.WithPadding(0, px(8), 0, px(8)),
+		ebui.WithLayout(ebui.NewHorizontalStackLayout(px(6), ebui.AlignStart)),
+	)
+	button := func(label string, width float64, do func()) *ebui.Button {
+		b := ebui.NewButton(ebui.WithSize(px(width), px(buttonH)), ebui.WithLabelText(label), ebui.WithClickHandler(do))
+		bar.AddChild(b)
+		return b
+	}
+	label := func(width float64) *ebui.Label {
+		l := ebui.NewLabel("", ebui.WithSize(px(width), px(buttonH)), ebui.WithColor(ink), ebui.WithJustify(ebui.JustifyLeft))
+		bar.AddChild(l)
+		return l
+	}
+	ws.play = button("Play", 56, d.togglePlay)
+	button("Start", 52, func() { d.seek(0) })
+	ws.loop = button("Loop", 52, d.toggleLoop)
+	button("Seam", 52, func() {
+		if !d.view.Loop {
+			d.toggleLoop()
+		}
+		d.playBody(session.Seam(d.layout.Song))
+	})
+	ws.position = ebui.NewLabel("", ebui.WithSize(px(96), px(buttonH)), ebui.WithColor(ink), ebui.WithJustify(ebui.JustifyCenter), ebui.WithFont(d.fonts.mono))
+	bar.AddChild(ws.position)
+	ws.tempo = button("", 76, d.editTempo)
+	ws.meter = button("", 72, d.editMeter)
+	ws.key = label(120)
+	ws.click = button("Click", 56, d.toggleClick)
+	ws.loudness = label(130)
+	ws.progress = label(110)
+	ws.undo = button("Undo", 52, d.undo)
+	ws.redo = button("Redo", 52, d.redo)
+	ws.save = button("Save", 52, d.save)
+	if d.baker != nil {
+		ws.bake = button("Bake", 52, d.bake)
+	}
+	ws.mixer = button("Mixer", 56, d.toggleMixer)
+	button("Browser", 70, d.toggleBrowser)
+	ws.root.AddChild(bar)
+
+	if d.view.Browser {
+		list := ebui.NewScrollableContainer(
+			ebui.WithSize(px(browserW), float64(ws.browser.Dy())),
+			ebui.WithPosition(ebui.Position{X: 0, Y: float64(ws.browser.Min.Y)}),
+			ebui.WithPadding(px(6), px(6), px(6), px(6)),
+			ebui.WithLayout(ebui.NewVerticalStackLayout(px(2), ebui.AlignStart)),
+		)
+		heading := func(s string) {
+			list.AddChild(ebui.NewLabel(s, ebui.WithSize(px(browserW-24), px(itemH)), ebui.WithColor(dim), ebui.WithJustify(ebui.JustifyLeft)))
+		}
+		item := func(id, name string) {
+			b := ebui.NewButton(
+				ebui.WithSize(px(browserW-24), px(itemH)),
+				ebui.WithLabelText(fit(d.fonts.text, name, px(browserW-36))),
+				ebui.WithRole(roleItem),
+				ebui.WithClickHandler(func() { d.open(id, true) }),
+			)
+			ws.items[id] = b
+			list.AddChild(b)
+		}
+		heading("Songs")
+		for _, a := range d.lib.Arrangements {
+			if a.Tempo > 0 {
+				item(a.ID, a.Name)
+			}
+		}
+		for _, s := range d.lib.Songs {
+			item(s.ID, s.Name+" (code)")
+		}
+		if sounds := d.lib.SoundEffects(); len(sounds) > 0 {
+			heading("Sounds")
+			for _, s := range sounds {
+				item(s.ID, s.Name)
+			}
+		}
+		d.dv.browse(d, list)
+		ws.root.AddChild(list)
+	}
+
+	ws.status = ebui.NewLabel("",
+		ebui.WithSize(w-px(16), px(statusH)),
+		ebui.WithPosition(ebui.Position{X: px(8), Y: float64(ws.statusBar.Min.Y)}),
+		ebui.WithColor(dim), ebui.WithJustify(ebui.JustifyLeft))
+	ws.root.AddChild(ws.status)
+	reloadW := px(250)
+	ws.reload = ebui.NewButton(
+		ebui.WithSize(reloadW, px(statusH-4)),
+		ebui.WithPosition(ebui.Position{X: w - reloadW - px(4), Y: float64(ws.statusBar.Min.Y) + px(2)}),
+		ebui.WithLabelText("Reload, dropping unsaved edits"),
+		ebui.WithClickHandler(func() { d.reload = true }),
+	)
+	ws.reload.Hide()
+	ws.root.AddChild(ws.reload)
+	ws.refreshBrowser(d)
+	return ws
+}
+
+func (ws *widgets) refreshBrowser(d *desk) {
+	for id, b := range ws.items {
+		if id == d.layout.ID {
+			b.SetRole(roleItemOn)
+		} else {
+			b.SetRole(roleItem)
+		}
+	}
+}
+
+func enable(b *ebui.Button, on bool) {
+	if on {
+		b.Enable()
+	} else {
+		b.Disable()
+	}
+}
+
+func toggle(b *ebui.Button, on bool) {
+	if on {
+		b.SetRole(roleOn)
+	} else {
+		b.SetRole("")
+	}
+}
+
+// refresh shows the session as it is now.
+func (ws *widgets) refresh(d *desk) {
+	l, s := d.layout, d.layout.Song
+	if d.view.Playing {
+		ws.play.SetLabel("Stop")
+	} else {
+		ws.play.SetLabel("Play")
+	}
+	toggle(ws.play, d.view.Playing)
+	toggle(ws.loop, d.view.Loop)
+	toggle(ws.click, d.view.Click)
+	toggle(ws.mixer, d.view.Mixer)
+	enable(ws.undo, d.doc != nil && d.doc.CanUndo())
+	enable(ws.redo, d.doc != nil && d.doc.CanRedo())
+	enable(ws.save, d.doc != nil && d.doc.Dirty())
+	toggle(ws.save, d.doc != nil && d.doc.Dirty())
+	if ws.bake != nil {
+		s := d.baker.State()
+		enable(ws.bake, !s.Baking && len(s.Stale) > 0)
+		toggle(ws.bake, !s.Baking && len(s.Stale) > 0)
+	}
+	if d.waiting != nil {
+		ws.reload.Show()
+	} else {
+		ws.reload.Hide()
+	}
+	ws.position.SetText(session.Format(s, d.view.At))
+
+	timed := session.Timed(s)
+	ws.tempo.SetLabel("")
+	ws.meter.SetLabel("")
+	if timed {
+		ws.tempo.SetLabel(fmt.Sprintf("%g bpm", math.Round(l.Tempo*100)/100))
+		ws.meter.SetLabel(session.FormatMeter(l.Meter))
+	}
+	if text, ok := d.typed("tempo"); ok {
+		ws.tempo.SetLabel(text)
+	}
+	if text, ok := d.typed("meter"); ok {
+		ws.meter.SetLabel(text)
+	}
+	toggle(ws.tempo, d.typing != nil && d.typing.id == "tempo")
+	toggle(ws.meter, d.typing != nil && d.typing.id == "meter")
+	ws.key.SetText(l.Key)
+
+	switch {
+	case math.IsInf(d.loudness, -1):
+		ws.loudness.SetText("")
+	case s.Target != 0:
+		ws.loudness.SetText(fmt.Sprintf("%.1f / %g LUFS", d.loudness, s.Target))
+	default:
+		ws.loudness.SetText(fmt.Sprintf("%.1f LUFS", d.loudness))
+	}
+	if busy, done := d.renders.Busy(); busy {
+		ws.progress.SetText(fmt.Sprintf("rendering %.0f%%", 100*done))
+	} else {
+		ws.progress.SetText("")
+	}
+
+	hint := "click a clip to edit it · click the tempo or meter to type it · space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · shift+tab devices · A automation · Z fit · B browser · caps lock plays the keys · cmd+wheel or pinch zooms · cmd+Z undo · cmd+S save"
+	if d.view.Mixer {
+		hint = "drag faders and knobs (shift: fine) · double-click resets · click a value to type it · " + hint
+	}
+	if l.Custom {
+		hint = d.readOnly() + " · " + hint
+	}
+	if d.view.Mixer && d.mx.hint != "" {
+		hint = d.mx.hint
+	}
+	if !d.view.Mixer && d.tl.hint != "" {
+		hint = d.tl.hint
+	}
+	if d.typing != nil {
+		hint = "type, then return · esc leaves it as it was"
+	}
+	if d.kb.on {
+		hint = d.kb.hint(d)
+	}
+	if image.Pt(ebiten.CursorPosition()).In(d.ce.r) && d.detailHint() != "" {
+		hint = d.detailHint()
+	}
+	if !d.view.Devices && image.Pt(ebiten.CursorPosition()).In(d.snd.r) && d.snd.hint != "" {
+		hint = d.snd.hint
+	}
+	if d.note != "" {
+		hint = d.note + "   ·   " + hint
+	}
+	if s := d.bakeStatus(); s != "" {
+		hint = s + "   ·   " + hint
+	}
+	ws.status.SetText(d.buildStatus() + "   ·   " + hint)
+}
+
+// drawUnder fills the panels the controls sit on.
+func (ws *widgets) drawUnder(dst *ebiten.Image) {
+	fill(dst, ws.transport, panel)
+	fill(dst, ws.browser, panel)
+	fill(dst, ws.statusBar, panel)
+	line(dst, 0, float64(ws.transport.Max.Y), float64(ws.transport.Max.X), float64(ws.transport.Max.Y), 1, edge)
+	if !ws.browser.Empty() {
+		line(dst, float64(ws.browser.Max.X), float64(ws.browser.Min.Y), float64(ws.browser.Max.X), float64(ws.browser.Max.Y), 1, edge)
+	}
+}
+
+// drawOver shows a failed build's output over the bottom of the timeline.
+func (ws *widgets) drawOver(dst *ebiten.Image, d *desk) {
+	if d.build.State != session.Failed {
+		return
+	}
+	lines := strings.Split(d.build.Output, "\n")
+	if len(lines) > outputRows {
+		lines = append(lines[:outputRows-1], fmt.Sprintf("… %d more", len(lines)-outputRows+1))
+	}
+	rowH := d.px(16)
+	h := rowH*float64(len(lines)) + d.px(16)
+	r := ws.timeline
+	box := image.Rect(r.Min.X, r.Max.Y-int(h), r.Max.X, r.Max.Y)
+	fill(dst, box, edge)
+	line(dst, float64(box.Min.X), float64(box.Min.Y), float64(box.Max.X), float64(box.Min.Y), d.px(2), failColor)
+	for i, s := range lines {
+		y := float64(box.Min.Y) + d.px(8) + rowH*(float64(i)+0.5)
+		drawText(dst, d.fonts.num, fit(d.fonts.num, s, float64(box.Dx())-d.px(16)), float64(box.Min.X)+d.px(8), y, failColor, text.AlignStart)
+	}
+}

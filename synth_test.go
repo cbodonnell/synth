@@ -32,7 +32,7 @@ func busySong() Song {
 			Name: "p", Patch: p,
 			Notes:   Phrase{Step: 0.1, Humanize: 0.01}.Notes("C4 E4,G4 - . C5"),
 			Inserts: []Effect{Chorus{}, Drive{Amount: 2}},
-			Sends:   []Send{{Bus: "verb", Level: 0.5}},
+			Sends:   []Send{{Bus: "verb", Level: -6}},
 		}},
 		Buses:  []Bus{{Name: "verb", Effects: []Effect{Reverb{Size: 0.4}, Delay{Time: 0.05, Feedback: 0.4}}}},
 		Master: []Effect{Compressor{Threshold: -12}},
@@ -49,7 +49,7 @@ func TestRenderEmptySongIsEmpty(t *testing.T) {
 
 func TestRenderStaysInRange(t *testing.T) {
 	s := busySong()
-	s.Parts[0].Gain = 50
+	s.Parts[0].Level = 34
 	out := Render(s)
 	require.NotZero(t, out.Len())
 	assert.LessOrEqual(t, out.Peak(), float32(1))
@@ -81,17 +81,17 @@ func TestEnvelopeEndsAtExactlyZero(t *testing.T) {
 	} {
 		dur := 0.3
 		end := e.length(dur)
-		assert.Zero(t, e.level(0, dur))
-		assert.Zero(t, e.level(end, dur))
-		assert.Greater(t, e.level(e.attack(), dur), 0.0)
+		assert.Zero(t, e.Level(0, dur))
+		assert.Zero(t, e.Level(end, dur))
+		assert.Greater(t, e.Level(e.attack(), dur), 0.0)
 	}
 }
 
 func TestEnvelopeReachesItsTargets(t *testing.T) {
 	e := Envelope{Attack: 0.01, Decay: 0.1, Sustain: 0.5, Release: 0.2}
-	assert.InDelta(t, 1, e.level(0.01, 1), 1e-9)
-	assert.InDelta(t, 0.5, e.level(0.11, 1), 1e-9)
-	assert.InDelta(t, 0.5, e.level(0.9, 1), 1e-9)
+	assert.InDelta(t, 1, e.Level(0.01, 1), 1e-9)
+	assert.InDelta(t, 0.5, e.Level(0.11, 1), 1e-9)
+	assert.InDelta(t, 0.5, e.Level(0.9, 1), 1e-9)
 }
 
 // Autocorrelation peak near the expected period, refined between samples.
@@ -362,4 +362,69 @@ func TestTakesReseedTheNoise(t *testing.T) {
 	assert.Equal(t, Render(s), Render(Take(s, 0)))
 	assert.NotEqual(t, Render(s), Render(Take(s, 1)))
 	assert.Equal(t, Render(Take(s, 1)), Render(Take(s, 1)))
+}
+
+func TestRendererMatchesRenderAfterEdits(t *testing.T) {
+	for name, opts := range map[string][]RendererOption{
+		"in memory": nil,
+		"budgeted":  {Budget(1 << 20)},
+		"spilled":   {Spill(t.TempDir())},
+		"both":      {Budget(1 << 20), Spill(t.TempDir())},
+	} {
+		s := busySong()
+		s.Parts = append(s.Parts, Part{Name: "q", Patch: tone(Pulse), Notes: Phrase{Step: 0.2}.Notes("G3 - A3 B3"), Out: "verb"})
+		s.Parts[0].Notes = Repeat(s.Parts[0].Notes, 3, 1)
+		s.Length, s.Loop, s.LoopStart = 3, true, 1
+
+		r := NewRenderer(opts...)
+		for i, edit := range []func(s *Song){
+			func(s *Song) {},
+			func(s *Song) { s.Parts[0].Notes[4].Key++ },
+			func(s *Song) { s.Parts[1].Level = -6 },
+			func(s *Song) { s.Parts[0].Inserts[1] = Drive{Amount: 4} },
+			func(s *Song) { s.Buses[0].Effects[0] = Reverb{Size: 0.7} },
+			func(s *Song) { s.Parts = s.Parts[1:] },
+			func(s *Song) { s.Loop = false },
+			func(s *Song) { *s = Take(*s, 2) },
+		} {
+			edit(&s)
+			require.Equalf(t, Render(s), r.Render(s), "%s, edit %d: Render", name, i)
+			require.Equalf(t, RenderLoop(s), r.RenderLoop(s), "%s, edit %d: RenderLoop", name, i)
+		}
+	}
+}
+
+func TestRendererKeepsToItsBudget(t *testing.T) {
+	s := busySong()
+	s.Parts[0].Notes = Repeat(s.Parts[0].Notes, 3, 1)
+	s.Length, s.Loop, s.LoopStart = 3, true, 1
+
+	r := NewRenderer()
+	r.RenderLoop(s)
+	held, _ := r.Held()
+
+	r = NewRenderer(Budget(held / 4))
+	r.RenderLoop(s)
+	memory, _ := r.Held()
+	assert.LessOrEqual(t, memory, held/4)
+
+	r = NewRenderer(Spill(t.TempDir()))
+	r.RenderLoop(s)
+	memory, mapped := r.Held()
+	assert.Positive(t, mapped, "parts and buses go to files")
+	assert.Less(t, memory, held)
+}
+
+func TestGaugeReadsLoudnessWhereItIs(t *testing.T) {
+	buf := NewStereo(samples(8))
+	a := dbToGain(-23)
+	for i := samples(4); i < buf.Len(); i++ {
+		x := float32(a * math.Sin(2*math.Pi*1000*float64(i)/SampleRate))
+		buf.L[i], buf.R[i] = x, x
+	}
+	g := NewGauge(buf)
+	assert.True(t, math.IsInf(g.ShortTerm(samples(3.9)), -1))
+	assert.InDelta(t, -23, g.ShortTerm(samples(7.9)), 0.1)
+	assert.Zero(t, g.Peak(samples(3.9), 0.05))
+	assert.InDelta(t, a, g.Peak(samples(7.9), 0.05), 1e-3)
 }

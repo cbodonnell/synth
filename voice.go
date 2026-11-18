@@ -154,13 +154,13 @@ func renderVoice(dst Stereo, start int, p Patch, n Note, v unisonVoice) {
 			base = Hz(key)
 		}
 
-		amp := p.Amp.level(t, n.Dur)
+		amp := p.Amp.Level(t, n.Dur)
 		var x float64
 		for oi := range oscs {
 			s := &oscs[oi]
 			e := amp
 			if s.ownEnv {
-				e = s.env.level(t, n.Dur)
+				e = s.env.Level(t, n.Dur)
 			}
 			if e == 0 && t > n.Dur {
 				continue
@@ -172,7 +172,7 @@ func renderVoice(dst Stereo, start int, p Patch, n Note, v unisonVoice) {
 			if i%filterEvery == 0 {
 				oct := baseOctaves + wah
 				if p.Filter.EnvAmount != 0 {
-					oct += p.Filter.EnvAmount * p.Filter.Env.level(t, n.Dur)
+					oct += p.Filter.EnvAmount * p.Filter.Env.Level(t, n.Dur)
 				}
 				f.set(p.Filter.Cutoff*math.Exp2(oct), p.Filter.Resonance)
 			}

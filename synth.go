@@ -10,7 +10,7 @@ const SampleRate = 48000
 
 // Revision changes whenever rendering changes what a Song sounds like, so a baked song
 // knows it must be baked again.
-const Revision = 1
+const Revision = 2
 
 // Stereo is a rendered buffer. L and R are always the same length.
 type Stereo struct {
