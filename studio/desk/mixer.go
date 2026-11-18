@@ -239,6 +239,9 @@ func (m *mixer) strip(d *desk, s strip, pt image.Point, clicked bool) {
 	if clicked {
 		m.typing = nil
 	}
+	if clicked && d.dv.pickStrip(d, m, s, pt) {
+		return
+	}
 
 	switch s.kind {
 	case trackStrip:

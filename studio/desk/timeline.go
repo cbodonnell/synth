@@ -31,16 +31,18 @@ type timeline struct {
 
 	sel  playRef // the play last clicked
 	drag *laneDrag
+	auto automation
 	hint string
 
 	last     string // what was last clicked, and when, for a double-click
 	lastTime time.Time
 }
 
-// row is a lane, or a group bus's header over its tracks.
+// row is a lane, a group bus's header over its tracks, or an automation lane.
 type row struct {
-	lane  int // -1 for a group
+	lane  int // -1 for a group or automation
 	group string
+	auto  *session.Automation
 	y, h  float64
 }
 
@@ -90,6 +92,7 @@ func (t *timeline) rows(d *desk) []row {
 	for i, lane := range d.layout.Lanes {
 		if lane.Out == "" {
 			add(row{lane: i, h: d.px(laneH)})
+			t.addLanes(d, add, lane.Name, "", "")
 			continue
 		}
 		if done[lane.Out] {
@@ -97,15 +100,18 @@ func (t *timeline) rows(d *desk) []row {
 		}
 		done[lane.Out] = true
 		add(row{lane: -1, group: lane.Out, h: d.px(groupH)})
+		t.addLanes(d, add, "", lane.Out, lane.Out)
 		if slices.Contains(d.view.Folded, lane.Out) {
 			continue
 		}
 		for j, other := range d.layout.Lanes {
 			if other.Out == lane.Out {
 				add(row{lane: j, group: lane.Out, h: d.px(laneH)})
+				t.addLanes(d, add, other.Name, "", lane.Out)
 			}
 		}
 	}
+	t.addOtherLanes(d, add)
 	return rows
 }
 
@@ -126,6 +132,10 @@ func (t *timeline) update(d *desk) {
 			d.view.Scroll = math.Max(0, d.view.At-d.px(24)/t.pps(d))
 		}
 	}
+	if t.auto.drag != nil {
+		t.draggingPoint(d)
+		return
+	}
 	if t.drag != nil {
 		t.dragging(d)
 		return
@@ -137,13 +147,14 @@ func (t *timeline) update(d *desk) {
 		return
 	}
 
+	if d.pinch != 0 {
+		t.zoomAbout(d, fx, 1+d.pinch)
+	}
 	if wx, wy := ebiten.Wheel(); wx != 0 || wy != 0 {
 		command := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyMeta)
 		switch {
 		case command:
-			at := t.at(d, math.Max(fx, t.left(d)))
-			d.view.Zoom = clampZoom(d.view.Zoom * math.Pow(1.1, wy))
-			d.view.Scroll = at - (math.Max(fx, t.left(d))-t.left(d))/t.pps(d)
+			t.zoomAbout(d, fx, math.Pow(1.1, wy))
 		case ebiten.IsKeyPressed(ebiten.KeyShift) || wx != 0:
 			dx := wx
 			if dx == 0 {
@@ -156,7 +167,7 @@ func (t *timeline) update(d *desk) {
 		t.clampScroll(d)
 	}
 
-	if t.arranging(d, fx, fy) || !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if t.automating(d, fx, fy) || t.arranging(d, fx, fy) || !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return
 	}
 	if fy < t.top(d) {
@@ -201,6 +212,15 @@ func (t *timeline) update(d *desk) {
 		}
 		return
 	}
+}
+
+// zoomAbout zooms by the factor, keeping the time under x where it is.
+func (t *timeline) zoomAbout(d *desk, x, by float64) {
+	x = math.Max(x, t.left(d))
+	at := t.at(d, x)
+	d.view.Zoom = clampZoom(d.view.Zoom * by)
+	d.view.Scroll = at - (x-t.left(d))/t.pps(d)
+	t.clampScroll(d)
 }
 
 func (t *timeline) clampScroll(d *desk) {
@@ -262,7 +282,11 @@ func (t *timeline) draw(dst *ebiten.Image, d *desk) {
 	}
 	t.drawGrid(body, d, t.top(d), float64(t.r.Max.Y))
 	for _, r := range rows {
-		if r.lane >= 0 {
+		switch {
+		case r.auto != nil:
+			t.drawLane(lanes, d, r)
+			continue
+		case r.lane >= 0:
 			t.drawBlocks(body, d, r)
 		}
 		t.drawHeader(lanes, d, r)

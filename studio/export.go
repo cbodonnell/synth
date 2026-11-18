@@ -65,10 +65,13 @@ func Arrange(s synth.Song) synth.Arrangement {
 
 // A sound effect has no bars: each layer is one clip of Notes in seconds.
 func arrangeSound(a synth.Arrangement, s synth.Song) synth.Arrangement {
-	a.Sections = []synth.Section{{Name: "A", Bars: 1}}
 	for _, p := range s.Parts {
 		t := track(p)
-		t.Clips = []synth.Clip{{Name: "a", Notes: p.Notes}}
+		notes := slices.Clone(p.Notes)
+		for i, n := range notes {
+			notes[i].At, notes[i].Dur, notes[i].SlideTime = round(n.At, 9), round(n.Dur, 9), round(n.SlideTime, 9)
+		}
+		t.Clips = []synth.Clip{{Name: "a", Notes: notes}}
 		t.Play = []synth.Play{{Clip: "a", Bar: 1}}
 		a.Tracks = append(a.Tracks, t)
 	}

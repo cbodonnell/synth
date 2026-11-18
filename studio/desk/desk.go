@@ -43,6 +43,12 @@ func Run(c Config) error {
 	}
 	d.player = player.New()
 	d.preview = d.player.Preview()
+	d.kb = newKeyboard(d.player)
+	listenPinch()
+	if c.Library.Bake != "" {
+		d.baker = session.NewBaker(c.Library.Bake)
+		d.checkBake()
+	}
 	if d.handoff == "" {
 		d.status = "no reload: run with -edit"
 	} else if w, err := session.Watch(filepath.Dir(d.handoff)); err != nil {
@@ -120,6 +126,11 @@ type desk struct {
 	tl      timeline
 	mx      mixer
 	ce      clipEditor
+	kb      keyboard
+	baker   *session.Baker // nil without a bake directory
+	pinch   float64        // the trackpad's magnification this frame
+	snd     soundPanel
+	dv      devices
 	stale   bool // laid out for a view that has changed
 }
 
@@ -150,11 +161,12 @@ func (d *desk) open(id string, fresh bool) {
 		}
 	}
 	d.mx, d.ce, d.tl.sel, d.tl.drag = mixer{}, clipEditor{}, playRef{}, nil
+	d.dv.close(d)
 	d.menu, d.typing = nil, nil
 	d.layout, d.take, d.loudness, d.seam = l, nil, math.Inf(-1), false
 	d.view.ID, d.view.Playing = id, playing
 	if fresh {
-		d.view = session.View{ID: id, Loop: d.view.Loop, Click: d.view.Click, Browser: d.view.Browser, Mixer: d.view.Mixer}
+		d.view = session.View{ID: id, Loop: d.view.Loop, Click: d.view.Click, Browser: d.view.Browser, Mixer: d.view.Mixer, Lanes: d.view.Lanes}
 		d.tl.fit(d)
 	}
 	if !session.Timed(l.Song) {
@@ -212,7 +224,9 @@ func (d *desk) redo() {
 	}
 }
 
-func (d *desk) dragging() bool { return d.mx.drag != nil || d.ce.drag != nil || d.tl.drag != nil }
+func (d *desk) dragging() bool {
+	return d.mx.drag != nil || d.ce.drag != nil || d.tl.drag != nil || d.tl.auto.drag != nil || d.dv.drag != nil
+}
 
 func (d *desk) dirty() bool { return d.docs != nil && len(d.docs.Dirty()) > 0 }
 
@@ -225,6 +239,7 @@ func (d *desk) save() {
 	if !d.doc.Dirty() {
 		d.saved(d.doc.Path)
 		d.note = "saved " + filepath.Base(d.doc.Path)
+		d.checkBake()
 	}
 	if err != nil {
 		d.note = "not saved: " + err.Error()
@@ -312,6 +327,10 @@ func (d *desk) receive(t session.Take) {
 }
 
 func (d *desk) play() {
+	if d.sound() {
+		d.snd.audition(d)
+		return
+	}
 	d.view.Playing = true
 	if d.take == nil {
 		return
@@ -417,7 +436,9 @@ func (d *desk) Update() error {
 	if t, ok := d.renders.Done(); ok {
 		d.receive(t)
 	}
-	if d.sounding {
+	if d.sounding && d.sound() {
+		d.snd.follow(d)
+	} else if d.sounding {
 		if f, ok := d.preview.Position(); ok {
 			d.frame, d.view.At = f, d.take.Time(f)
 		} else {
@@ -443,7 +464,13 @@ func (d *desk) Update() error {
 	if err := d.ui.Update(); err != nil {
 		return err
 	}
-	if !d.typeKeys() && !d.mx.keys(d) && !d.ce.keys(d) {
+	d.pinch = takePinch()
+	d.kb.lock()
+	if d.dv.carrying(d) {
+		d.widgets.refresh(d)
+		return nil
+	}
+	if !d.typeKeys() && !d.kb.keys(d) && !d.snd.keys() && !d.mx.keys(d) && !d.dv.keys(d) && (d.view.Devices || !d.ce.keys(d)) {
 		d.keys()
 	}
 	if d.view.Mixer {
@@ -451,7 +478,12 @@ func (d *desk) Update() error {
 	} else {
 		d.tl.update(d)
 	}
-	d.ce.update(d)
+	if d.view.Devices {
+		d.dv.update(d)
+	} else {
+		d.snd.update(d)
+		d.ce.update(d)
+	}
 	d.widgets.refresh(d)
 	return nil
 }
@@ -487,6 +519,8 @@ func (d *desk) keys() {
 		d.toggleLoop()
 	case pressed(ebiten.KeyK):
 		d.toggleClick()
+	case pressed(ebiten.KeyR) && d.sound():
+		d.snd.toggleRepeat(d)
 	case pressed(ebiten.KeyS):
 		if d.view.Track != "" {
 			d.toggleSolo(d.view.Track)
@@ -501,12 +535,16 @@ func (d *desk) keys() {
 		d.tl.fit(d)
 	case pressed(ebiten.KeyB):
 		d.toggleBrowser()
+	case pressed(ebiten.KeyA):
+		d.toggleLanes()
 	case pressed(ebiten.KeyUp):
 		d.tl.selectNext(d, -1)
 	case pressed(ebiten.KeyDown):
 		d.tl.selectNext(d, 1)
 	case (pressed(ebiten.KeyDelete) || pressed(ebiten.KeyBackspace)) && !d.view.Mixer:
-		d.tl.deletePlay(d)
+		if !d.tl.deletePoint(d) {
+			d.tl.deletePlay(d)
+		}
 	}
 }
 
@@ -593,7 +631,7 @@ func (d *desk) relayout() {
 	d.ui = ebui.NewManager(d.widgets.root, ebui.WithNavInput(nil))
 	d.ui.DisableFocus()
 	d.tl.place(d)
-	d.ce.r = d.widgets.detail
+	d.snd.place(d)
 }
 
 func (d *desk) Draw(screen *ebiten.Image) {
@@ -607,9 +645,15 @@ func (d *desk) Draw(screen *ebiten.Image) {
 	} else {
 		d.tl.draw(screen, d)
 	}
-	d.ce.draw(screen, d)
+	if d.view.Devices {
+		d.dv.draw(screen, d)
+	} else {
+		d.ce.draw(screen, d)
+		d.snd.draw(screen, d)
+	}
 	d.ui.Draw(screen)
 	d.widgets.drawOver(screen, d)
+	d.dv.drawCarry(screen, d)
 	if d.menu != nil {
 		d.menu.draw(screen, d)
 	}

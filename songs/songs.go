@@ -2,35 +2,31 @@
 package songs
 
 import (
+	"slices"
+
 	"github.com/cbodonnell/synth"
-	"github.com/cbodonnell/synth/patches"
 )
 
+// Arrangements are the example songs, then the sounds.
 func Arrangements() []synth.Arrangement {
-	return []synth.Arrangement{goldenBrown, amberHours, playaSunrise, lavaLamp, brighterDays, smokeSignal, woodlands, interstellar, longLight, daybreak, goldenHour}
+	return slices.Concat([]synth.Arrangement{
+		goldenBrown, amberHours, playaSunrise, lavaLamp, brighterDays, smokeSignal, woodlands,
+		interstellar, longLight, daybreak, goldenHour,
+	}, Hits(), Platformer())
 }
 
-func Songs() []synth.Song {
+func Songs() []synth.Song { return compiled(func(a synth.Arrangement) bool { return a.Tempo > 0 }) }
+
+func Sounds() []synth.Song { return compiled(func(a synth.Arrangement) bool { return a.Tempo == 0 }) }
+
+func compiled(keep func(synth.Arrangement) bool) []synth.Song {
 	var songs []synth.Song
 	for _, a := range Arrangements() {
-		songs = append(songs, a.Song())
+		if keep(a) {
+			songs = append(songs, a.Song())
+		}
 	}
 	return songs
-}
-
-func Sounds() []synth.Song {
-	coin := synth.Phrase{Step: 0.07, Gate: 0.9}.Notes("B5 E6 -")
-	return append([]synth.Song{
-		synth.Hit("kick", patches.Kick(), synth.MustKey("C2"), 0.3),
-		synth.Hit("snare", patches.Snare(), synth.MustKey("C3"), 0.15),
-		synth.Hit("hihat", patches.HiHat(), synth.MustKey("C5"), 0.04),
-		synth.Hit("laser", patches.Laser(), synth.MustKey("C5"), 0.2),
-		synth.Hit("bell", patches.Bell(), synth.MustKey("E5"), 1),
-		synth.Hit("epiano", patches.EPiano(), synth.MustKey("A3"), 1),
-		synth.Hit("bass", patches.Bass(), synth.MustKey("E1"), 0.5),
-		synth.Hit("harpsichord", patches.Harpsichord(), synth.MustKey("Bb3"), 1),
-		{ID: "coin", Name: "coin", Parts: []synth.Part{{Name: "coin", Patch: patches.Coin(), Notes: coin}}},
-	}, Platformer()...)
 }
 
 func Lookup(id string) (synth.Song, bool) {

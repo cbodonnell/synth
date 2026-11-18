@@ -19,6 +19,7 @@ type Layout struct {
 	Key         string
 	Sections    []Section
 	Lanes       []Lane
+	Automation  []Automation
 	// A song that isn't an arrangement: its parts are lanes, each one clip, and nothing
 	// in it can be edited here.
 	Custom bool
@@ -52,7 +53,7 @@ type Block struct {
 func Arranged(a synth.Arrangement) Layout {
 	l := Layout{
 		ID: a.ID, Name: a.Name, Song: a.Song(), Arrangement: a,
-		Tempo: a.Tempo, Meter: a.Meter, Key: a.Key,
+		Tempo: a.Tempo, Meter: a.Meter, Key: a.Key, Automation: Automations(a),
 	}
 	m := synth.Meter{Beat: 60 / math.Max(a.Tempo, 1e-9), Bars: a.Meter}
 
@@ -80,6 +81,9 @@ func Arranged(a synth.Arrangement) Layout {
 			}
 			from := BarTime(m, p.Bar-1)
 			to := BarTime(m, p.Bar-1+max(p.Times, 1)*clipBars(c))
+			if a.Tempo <= 0 {
+				from, to = 0, soundEnd(c)
+			}
 			b := Block{Clip: p.Clip, Play: k, From: from, To: to, Hit: c.Hit != ""}
 			for n := 1; n < p.Times; n++ {
 				b.Passes = append(b.Passes, BarTime(m, p.Bar-1+n*clipBars(c)))
@@ -94,6 +98,15 @@ func Arranged(a synth.Arrangement) Layout {
 		l.Lanes = append(l.Lanes, lane)
 	}
 	return l
+}
+
+// soundEnd is where a sound effect's clip ends: its last note's.
+func soundEnd(c synth.Clip) float64 {
+	end := 0.0
+	for _, n := range c.Notes {
+		end = math.Max(end, n.At+n.Dur)
+	}
+	return end
 }
 
 // Humanizing can pull a note this far ahead of the bar its play begins on.

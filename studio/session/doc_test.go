@@ -100,18 +100,65 @@ var edits = map[string]func(a *synth.Arrangement){
 			}
 		}
 	},
+	"notes moved": notesEdit(func(n []synth.Note, span float64) []synth.Note {
+		return MoveNotes(n, []int{0}, 0.01, 1, span)
+	}),
+	"notes stretched": notesEdit(func(n []synth.Note, span float64) []synth.Note { return StretchNote(n, 0, n[0].Dur*2, 0) }),
+	"note drawn off the grid": notesEdit(func(n []synth.Note, span float64) []synth.Note {
+		return DrawNote(n, synth.Note{At: Snap(span/2, 0), Dur: 0.05, Key: 64})
+	}),
+	"notes deleted": notesEdit(func(n []synth.Note, span float64) []synth.Note { return DeleteNotes(n, []int{0}) }),
 	"play moved": func(a *synth.Arrangement) {
 		t := &a.Tracks[len(a.Tracks)-1]
 		t.Play[len(t.Play)-1].Bar++
 	},
 	"play repeated":      func(a *synth.Arrangement) { RepeatPlay(a, 0, 0) },
 	"play made unique":   func(a *synth.Arrangement) { MakeUnique(a, 0, 0) },
-	"section inserted":   func(a *synth.Arrangement) { InsertSection(a, 1, NewSectionBars(*a)) },
-	"section resized":    func(a *synth.Arrangement) { _ = ResizeSection(a, 0, a.Sections[0].Bars+SectionBars(*a)) },
-	"section deleted":    func(a *synth.Arrangement) { _ = DeleteSection(a, len(a.Sections)-1) },
-	"section renamed":    func(a *synth.Arrangement) { _ = RenameSection(a, len(a.Sections)-1, "Coda") },
-	"section duplicated": func(a *synth.Arrangement) { DuplicateSection(a, 0) },
+	"section inserted":   sectioned(func(a *synth.Arrangement) { InsertSection(a, 1, NewSectionBars(*a)) }),
+	"section resized":    sectioned(func(a *synth.Arrangement) { _ = ResizeSection(a, 0, a.Sections[0].Bars+SectionBars(*a)) }),
+	"section deleted":    sectioned(func(a *synth.Arrangement) { _ = DeleteSection(a, len(a.Sections)-1) }),
+	"section renamed":    sectioned(func(a *synth.Arrangement) { _ = RenameSection(a, len(a.Sections)-1, "Coda") }),
+	"section duplicated": sectioned(func(a *synth.Arrangement) { DuplicateSection(a, 0) }),
 	"tempo":              func(a *synth.Arrangement) { a.Tempo += 2 },
+	"point added": automationEdit(func(a *synth.Arrangement, l Automation) {
+		_, _ = AddPoint(a, l, synth.Point{At: 2, Value: FromPosition(l.Param, 0.5, 0)})
+	}),
+	"point moved": automationEdit(func(a *synth.Arrangement, l Automation) {
+		i := len(l.Points) - 1
+		p := l.Points[i]
+		_, _ = MovePoint(a, l, i, synth.Point{At: p.At + 1, Value: FromPosition(l.Param, Position(l.Param, p.Value, 0)-0.1, 0)})
+	}),
+	"point deleted": automationEdit(func(a *synth.Arrangement, l Automation) { _ = DeletePoint(a, l, len(l.Points)-1) }),
+	"insert parameter": func(a *synth.Arrangement) {
+		for i := range a.Tracks {
+			c := Chain{TrackChain, i}
+			for j, e := range a.Tracks[i].Inserts {
+				for _, k := range Controls(e, append(c.Path(), j)) {
+					if k.Kind != Knob || math.IsInf(k.Param.Max, 1) {
+						continue
+					}
+					pos := Position(k.Param, k.Value, 0)
+					Set(a, k.Path, FromPosition(k.Param, pos+math.Copysign(0.1, 0.5-pos), 0))
+					return
+				}
+			}
+		}
+	},
+	"effect added": func(a *synth.Arrangement) {
+		e, _ := NewEffect("Delay")
+		AddEffect(a, Chain{BusChain, 0}, 0, e)
+		AddEffect(a, Chain{MasterChain, 0}, len(a.Master), e)
+	},
+	"effect removed": func(a *synth.Arrangement) {
+		for i := range a.Tracks {
+			if len(a.Tracks[i].Inserts) > 1 {
+				RemoveEffect(a, Chain{TrackChain, i}, 0)
+				return
+			}
+		}
+		RemoveEffect(a, Chain{MasterChain, 0}, 0)
+	},
+	"effect moved": func(a *synth.Arrangement) { MoveEffect(a, Chain{MasterChain, 0}, 0, len(a.Master)) },
 	"out": func(a *synth.Arrangement) {
 		for i := range a.Tracks {
 			if a.Tracks[i].Out == "" && len(a.Buses) > 0 {
@@ -134,6 +181,41 @@ func gridEdit(hit bool, f func(g Grid) Grid) func(a *synth.Arrangement) {
 				sc, _ := ParseScale(a.Key)
 				a.Tracks[i].Clips[j].Bars = f(g).Write(sc)
 				return
+			}
+		}
+	}
+}
+
+// automationEdit edits the arrangement's first lane holding points.
+func automationEdit(f func(a *synth.Arrangement, l Automation)) func(a *synth.Arrangement) {
+	return func(a *synth.Arrangement) {
+		for _, l := range Automations(*a) {
+			if len(l.Points) > 0 {
+				f(a, l)
+				return
+			}
+		}
+	}
+}
+
+// sectioned edits a song's sections, leaving a sound effect, which has none.
+func sectioned(f func(a *synth.Arrangement)) func(a *synth.Arrangement) {
+	return func(a *synth.Arrangement) {
+		if len(a.Sections) > 0 {
+			f(a)
+		}
+	}
+}
+
+// notesEdit edits the first clip of notes in the arrangement.
+func notesEdit(f func(n []synth.Note, span float64) []synth.Note) func(a *synth.Arrangement) {
+	return func(a *synth.Arrangement) {
+		for i, t := range a.Tracks {
+			for j, c := range t.Clips {
+				if len(c.Notes) > 0 {
+					a.Tracks[i].Clips[j].Notes = f(c.Notes, NotesSpan(*a, c, 0))
+					return
+				}
 			}
 		}
 	}

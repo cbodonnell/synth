@@ -112,6 +112,13 @@ line. Song positions and durations inside effects (`Point.At`, `TapeStop`, `Dela
 `Arrangement.Validate` checks what a Song can't: unknown clips and buses, bars that
 don't fill their meter, overlapping plays.
 
+A sound effect is an arrangement with `Tempo` 0: time is seconds and there are no bars,
+sections or meter. Each layer is a track playing one clip of `Notes` at bar 1, its
+length comes from its notes, and it carries `Vary`, `Voices` and `Priority` to its
+Song. Its level is a master `Normalize{Peak}` (dB), which scales the whole render so
+its loudest sample lands there. `Arrangements()` lists the songs, then the sounds;
+`Songs()` and `Sounds()` compile each.
+
 Keep arrangements literal: a field written as a helper call or a shared var is "custom"
 to the studio, shown but not editable. Patches modified from a `patches` constructor are
 the exception, written as a small func. Plays on one track may not overlap, so lines
@@ -215,11 +222,14 @@ bakes a file per take.
   lead singing a 3-3-2 hook, a kalimba ticking that rhythm and doubling the hook at the
   end, a clean guitar into dotted-eighth echoes, a swell pad, a round synth bass, a
   tight kit, and a distant crowd under the intro and the breakdown.
+- `hits.go`, single notes of the `patches` library, for hearing a patch alone.
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
-  in `Sounds()`. The reference for sound effects: layers of transient, body, and tail
-  through a `Limiter`, balanced by tier (UI quietest, combat and fanfares loudest).
-  Anything fired many times a second stays dry, since a reverb's faint tail holds a
-  voice for a second and the player keeps only 16. Priority follows the tiers, and
+  in `Platformer()`. The reference for sound effects: layers of transient, body, and
+  tail, leveled by a master `Normalize` per tier (UI -12 dB, movement and pickups -10
+  with the coins' bright pings at -13, combat -2, fanfares -3). `-stems` holds the
+  Normalize at the mix's gain, so each layer reads at its level in the sound. Anything
+  fired many times a second stays dry, since a reverb's faint tail holds a voice for a
+  second and the player keeps only 16. Priority follows the game's tiers, and
   whatever a game repeats (footsteps, hits, coins) varies and is capped.
 
 Drum-bus compressors undo velocity crescendos; a build's roll or soft kick belongs on
@@ -279,6 +289,17 @@ edit and its undo are byte for byte. Accents are the velocity lane's three level
 ratchet is one note, halving the step loses nothing (doubling needs every note on the
 longer step), and step input (Ctrl/Cmd+E) types at a cursor. `session.Scale` reads the
 song's `Key`: the lit keys, how new notes are spelled, and the triad and seventh stamps.
+A clip of `Notes` opens in `notes.go`'s roll without a grid: notes at free times in the
+clip's own time (beats, or seconds in a sound), snapped to a step from `session.Snaps`
+(off, 10ms or 50ms in a sound). Notes keep the order written, so a save rewrites only
+those an edit touched.
+
+A sound (`sound.go`) has a ruler in milliseconds, no sections, and an inspector beside
+the clip editor for `Vary`, `Voices` and `Priority`. Play auditions it through
+`player.Audition`, `Play`'s variation, voice cap and priority over the studio's own
+renders of its takes, so each press is a fresh take and pitch; `R` repeats it every
+300ms until pressed again. Solo holds a master `Normalize` at the whole mix's gain
+(`session.StemMaster`), so a soloed layer plays at its level in the sound.
 
 Arranging goes through `Doc.Arrange` rather than `Edit`: it keeps an edit only if the
 arrangement still validates and the save wouldn't write over code (`ErrCode`), and
@@ -295,3 +316,32 @@ insert, duplicate, delete, loop from here). A section's end drags its length; th
 brace's start drops onto a section. Tempo and meter are typed in the transport. The
 writer adds items to a list written several to a line back into its row, and writes a
 float that ten digits can't hold as the fraction it is (`1.0 / 3`).
+
+Automation is any `[]Point` field of an effect, synth's or a game's, found by reflection
+(`session.Automations`; `Song()` and `reflow` scale and move them the same way). Each is
+a lane beneath its track, its group bus's header, or after the tracks for other buses and
+the master, drawn on its `synth.Params` scale (log for Hz); `A` hides them. Points are
+added, dragged (snapped to a beat grid that follows the zoom, Shift off it) and deleted
+through `AddPoint`, `MovePoint` (which keeps them in `At` order and returns where the
+dragged one went) and `DeletePoint`. Caps Lock is musical typing (`desk/keyboard.go`):
+the selected track's patch is rendered for the octave's keys ahead of time and held
+through `player.Hold`, a voice faded out over the patch's release when the key lifts;
+step input shares its keys, octave and velocity. On macOS a trackpad's pinch never
+reaches Ebiten, so the window adds its own magnify-event monitor (`pinch_darwin.go`).
+`Library.Bake` names the game's bake directory; with it the transport's Bake button is
+lit while `bake.Stale` lists anything, and rebakes on a goroutine (`session.Baker`) the
+songs as saved.
+
+`Shift+Tab` turns the detail into the device chain (`desk/devices.go`): the selected
+track's patch device and its inserts, or a bus's or the master's effects (picked by its
+strip's name in the mixer). Controls come from `synth.Params` (each field's unit, range,
+scale, what 0 means, and resolution), or by reflection for a game's own effects
+(`session.Controls`: numbers as knobs, enums as cyclers, bools as toggles, `[]Point` as
+its lane); values are set by path (`session.Set`), parsed as typed ("3k", "250 ms",
+"-6 dB") and written at the control's resolution. A patch or effect written as code is
+shown read-only with "Make literal" (`Doc.MakeLiteral`). The browser's Patches drop onto
+a track (`Doc.SetPatch`, written as the `patches` call, the import added or dropped as
+needed) or empty space (`Doc.AddTrack`), and its Effects into a chain. A Doc's undo
+steps carry which paths are spelled as code, following their values through an edit, so
+making a call literal and undoing it writes the call back byte for byte; golit's `Hug`
+closes a new struct on its trailing list's last line.

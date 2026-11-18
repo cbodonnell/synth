@@ -133,10 +133,12 @@ type level struct {
 
 func newLevel(g float64) level { return level{cur: float32(g), target: float32(g)} }
 
-func (l *level) set(g float64) {
+func (l *level) set(g float64) { l.ramp(g, rampFrames) }
+
+func (l *level) ramp(g float64, frames int) {
 	l.target = float32(g)
-	l.left = rampFrames
-	l.step = (l.target - l.cur) / rampFrames
+	l.left = frames
+	l.step = (l.target - l.cur) / float32(frames)
 }
 
 func (l *level) next() float32 {

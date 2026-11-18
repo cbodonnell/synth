@@ -302,16 +302,12 @@ func retime(fx []synth.Effect, move func(x float64) []float64) {
 		return x
 	}
 	for i, e := range fx {
+		for _, f := range pointFields(e) {
+			pts := effectValue(fx[i]).FieldByName(f).Interface().([]synth.Point)
+			Automation{Effect: i, Field: f}.setIn(fx, movePoints(pts, move))
+		}
+		e = fx[i]
 		switch v := e.(type) {
-		case synth.AutoFilter:
-			v.Points = movePoints(v.Points, move)
-			fx[i] = v
-		case synth.Fader:
-			v.Points = movePoints(v.Points, move)
-			fx[i] = v
-		case synth.Panner:
-			v.Points = movePoints(v.Points, move)
-			fx[i] = v
 		case synth.TapeStop:
 			v.At, v.Until = first(v.At), first(v.Until)
 			fx[i] = v

@@ -81,17 +81,17 @@ func TestEnvelopeEndsAtExactlyZero(t *testing.T) {
 	} {
 		dur := 0.3
 		end := e.length(dur)
-		assert.Zero(t, e.level(0, dur))
-		assert.Zero(t, e.level(end, dur))
-		assert.Greater(t, e.level(e.attack(), dur), 0.0)
+		assert.Zero(t, e.Level(0, dur))
+		assert.Zero(t, e.Level(end, dur))
+		assert.Greater(t, e.Level(e.attack(), dur), 0.0)
 	}
 }
 
 func TestEnvelopeReachesItsTargets(t *testing.T) {
 	e := Envelope{Attack: 0.01, Decay: 0.1, Sustain: 0.5, Release: 0.2}
-	assert.InDelta(t, 1, e.level(0.01, 1), 1e-9)
-	assert.InDelta(t, 0.5, e.level(0.11, 1), 1e-9)
-	assert.InDelta(t, 0.5, e.level(0.9, 1), 1e-9)
+	assert.InDelta(t, 1, e.Level(0.01, 1), 1e-9)
+	assert.InDelta(t, 0.5, e.Level(0.11, 1), 1e-9)
+	assert.InDelta(t, 0.5, e.Level(0.9, 1), 1e-9)
 }
 
 // Autocorrelation peak near the expected period, refined between samples.

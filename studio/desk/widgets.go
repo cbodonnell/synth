@@ -35,8 +35,9 @@ type widgets struct {
 
 	play, loop, click, undo, redo, save, mixer, reload, tempo, meter *ebui.Button
 	position, key, loudness, progress                                *ebui.Label
-	items                                              map[string]*ebui.Button
-	status                                             *ebui.Label
+	items                                                            map[string]*ebui.Button
+	status                                                           *ebui.Label
+	bake                                                             *ebui.Button // nil without a bake directory
 
 	transport, browser, statusBar, timeline, detail image.Rectangle
 }
@@ -96,6 +97,9 @@ func buildWidgets(d *desk) *widgets {
 	ws.undo = button("Undo", 52, d.undo)
 	ws.redo = button("Redo", 52, d.redo)
 	ws.save = button("Save", 52, d.save)
+	if d.baker != nil {
+		ws.bake = button("Bake", 52, d.bake)
+	}
 	ws.mixer = button("Mixer", 56, d.toggleMixer)
 	button("Browser", 70, d.toggleBrowser)
 	ws.root.AddChild(bar)
@@ -122,17 +126,20 @@ func buildWidgets(d *desk) *widgets {
 		}
 		heading("Songs")
 		for _, a := range d.lib.Arrangements {
-			item(a.ID, a.Name)
+			if a.Tempo > 0 {
+				item(a.ID, a.Name)
+			}
 		}
 		for _, s := range d.lib.Songs {
 			item(s.ID, s.Name+" (code)")
 		}
-		if len(d.lib.Sounds) > 0 {
+		if sounds := d.lib.SoundEffects(); len(sounds) > 0 {
 			heading("Sounds")
-			for _, s := range d.lib.Sounds {
-				item(s.ID, s.ID)
+			for _, s := range sounds {
+				item(s.ID, s.Name)
 			}
 		}
+		d.dv.browse(d, list)
 		ws.root.AddChild(list)
 	}
 
@@ -196,6 +203,11 @@ func (ws *widgets) refresh(d *desk) {
 	enable(ws.redo, d.doc != nil && d.doc.CanRedo())
 	enable(ws.save, d.doc != nil && d.doc.Dirty())
 	toggle(ws.save, d.doc != nil && d.doc.Dirty())
+	if ws.bake != nil {
+		s := d.baker.State()
+		enable(ws.bake, !s.Baking && len(s.Stale) > 0)
+		toggle(ws.bake, !s.Baking && len(s.Stale) > 0)
+	}
 	if d.waiting != nil {
 		ws.reload.Show()
 	} else {
@@ -234,7 +246,7 @@ func (ws *widgets) refresh(d *desk) {
 		ws.progress.SetText("")
 	}
 
-	hint := "click a clip to edit it · click the tempo or meter to type it · space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · Z fit · B browser · cmd+wheel zoom · cmd+Z undo · cmd+S save"
+	hint := "click a clip to edit it · click the tempo or meter to type it · space play · return start · C loop · shift+C seam · K click · M mute · S solo · X mixer · shift+tab devices · A automation · Z fit · B browser · caps lock plays the keys · cmd+wheel or pinch zooms · cmd+Z undo · cmd+S save"
 	if d.view.Mixer {
 		hint = "drag faders and knobs (shift: fine) · double-click resets · click a value to type it · " + hint
 	}
@@ -250,11 +262,20 @@ func (ws *widgets) refresh(d *desk) {
 	if d.typing != nil {
 		hint = "type, then return · esc leaves it as it was"
 	}
-	if image.Pt(ebiten.CursorPosition()).In(d.ce.r) && d.ce.hint != "" {
-		hint = d.ce.hint
+	if d.kb.on {
+		hint = d.kb.hint(d)
+	}
+	if image.Pt(ebiten.CursorPosition()).In(d.ce.r) && d.detailHint() != "" {
+		hint = d.detailHint()
+	}
+	if !d.view.Devices && image.Pt(ebiten.CursorPosition()).In(d.snd.r) && d.snd.hint != "" {
+		hint = d.snd.hint
 	}
 	if d.note != "" {
 		hint = d.note + "   ·   " + hint
+	}
+	if s := d.bakeStatus(); s != "" {
+		hint = s + "   ·   " + hint
 	}
 	ws.status.SetText(d.buildStatus() + "   ·   " + hint)
 }

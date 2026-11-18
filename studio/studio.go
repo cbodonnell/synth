@@ -63,7 +63,7 @@ func Main(lib Library) {
 		os.Exit(session.Supervise(bin, os.Args[1:]))
 
 	case *edit:
-		v := session.View{ID: *id, Loop: true, Browser: true}
+		v := session.View{ID: *id, Loop: true, Browser: true, Lanes: true}
 		if *view != "" {
 			var err error
 			if v, err = session.ParseView(*view); err != nil {
@@ -90,7 +90,7 @@ func Main(lib Library) {
 		for _, s := range lib.Music() {
 			fmt.Printf("%-12s %-24s %5.1fs  loop from %.1fs\n", s.ID, s.Name, s.Length, s.LoopStart)
 		}
-		for _, s := range lib.Sounds {
+		for _, s := range lib.SoundEffects() {
 			fmt.Printf("%-12s sound\n", s.ID)
 		}
 
@@ -163,10 +163,12 @@ func render(s synth.Song, loops int) synth.Stereo {
 // is sounding, so a part that plays for four bars of twenty isn't read as quiet.
 func printStems(s synth.Song) {
 	const window = synth.SampleRate / 20
+	master := session.StemMaster(s)
 	for _, p := range s.Parts {
 		solo := s
 		solo.Parts = []synth.Part{p}
 		solo.Loop = false
+		solo.Master = master
 		buf := synth.Render(solo)
 
 		var sum float64

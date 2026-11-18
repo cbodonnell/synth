@@ -296,17 +296,30 @@ func (p *Player) MusicPosition() (time.Duration, bool) {
 // Play renders an uncached effect on the spot. Effects are short, but Prepare them anyway
 // if one must land on the frame it's triggered.
 func (p *Player) Play(s synth.Song, gain float64) {
+	p.play(s, gain, func(take int) []float32 {
+		r := p.render(s, take)
+		<-r.done
+		return r.pcm
+	})
+}
+
+// Audition plays a sound as Play does, varied and capped, but from render's takes of it
+// rather than the player's: the studio's, which follow its edits.
+func (p *Player) Audition(s synth.Song, gain float64, render func(take int) synth.Stereo) {
+	p.play(s, gain, func(take int) []float32 { return interleave(render(take)) })
+}
+
+func (p *Player) play(s synth.Song, gain float64, pcm func(take int) []float32) {
 	p.mu.Lock()
 	take, rate, g := vary(s.Vary, p.rng, p.lastTake(s.ID))
 	p.last[s.ID] = take
 	p.mu.Unlock()
 
-	r := p.render(s, take)
-	<-r.done
-	if len(r.pcm) == 0 {
+	buf := pcm(take)
+	if len(buf) == 0 {
 		return
 	}
-	v := newVoice(s.ID, &memory{pcm: r.pcm}, rate, gain*g)
+	v := newVoice(s.ID, &memory{pcm: buf}, rate, gain*g)
 	v.priority = s.Priority
 	p.effects.play(v, s.Voices)
 }

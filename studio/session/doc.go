@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,17 +23,25 @@ type Doc struct {
 	lit  *golit.Lit[synth.Arrangement]
 	src  []byte
 
-	now  synth.Arrangement
-	hist *edit.History[state]
+	now synth.Arrangement
+	// The values of now written as code, by golit's path in now: the source's code, less
+	// what has been edited or made literal, and the calls the studio has written.
+	spell map[string]golit.Spelling
+	hist  *edit.History[state]
 	// Edits are being held together as one step, and the step has been taken.
 	held, stepped bool
 	dirty         bool
 }
 
 // state is an arrangement as the undo history keeps it.
-type state struct{ a synth.Arrangement }
+type state struct {
+	a     synth.Arrangement
+	spell map[string]golit.Spelling
+}
 
-func (s state) Clone() state { return state{clone(reflect.ValueOf(s.a)).Interface().(synth.Arrangement)} }
+func (s state) Clone() state {
+	return state{clone(reflect.ValueOf(s.a)).Interface().(synth.Arrangement), maps.Clone(s.spell)}
+}
 
 // UndoDepth is how many edits can be undone.
 const UndoDepth = edit.MaxHistory
@@ -82,8 +91,8 @@ func Load(a synth.Arrangement, dirs []string) (*Doc, error) {
 	if !reflect.DeepEqual(d.lit.Value, a) {
 		return nil, fmt.Errorf("%s isn't the source of this build", d.Path)
 	}
-	d.now = a
-	d.hist = edit.NewHistory(state{a})
+	d.now, d.spell = a, codeOf(d.lit.Spelled)
+	d.hist = edit.NewHistory(state{a, d.spell})
 	return d, nil
 }
 
@@ -112,7 +121,23 @@ func (d *Doc) Dirty() bool { return d.dirty }
 func (d *Doc) Edit(f func(a *synth.Arrangement)) bool {
 	next := d.copy()
 	f(&next)
-	return d.take(next)
+	spell, _ := carry(d.now, next, d.spell)
+	return d.take(next, spell)
+}
+
+// respell applies f as Edit does, then spells the values at golit's paths in the result
+// as code, or as literals where the spelling is nil.
+func (d *Doc) respell(f func(a *synth.Arrangement), spell map[string]*golit.Spelling) bool {
+	next := d.copy()
+	f(&next)
+	out, _ := carry(d.now, next, d.spell)
+	for p, s := range spell {
+		maps.DeleteFunc(out, func(q string, _ golit.Spelling) bool { return golit.Under(q, p) || golit.Under(p, q) })
+		if s != nil {
+			out[p] = *s
+		}
+	}
+	return d.take(next, out)
 }
 
 // ErrCode refuses an edit that would write over code.
@@ -131,27 +156,29 @@ func (d *Doc) Arrange(f func(a *synth.Arrangement) error) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
-	if diff(d.lit, next).code {
+	spell, overwritten := carry(d.now, next, d.spell)
+	if overwritten {
 		return ErrCode
 	}
-	d.take(next)
+	d.take(next, spell)
 	return nil
 }
 
-func (d *Doc) copy() synth.Arrangement { return state{d.now}.Clone().a }
+func (d *Doc) copy() synth.Arrangement { return state{a: d.now}.Clone().a }
 
-// take makes next the arrangement, as a step to undo, reporting whether it changed.
-func (d *Doc) take(next synth.Arrangement) bool {
-	if reflect.DeepEqual(next, d.now) {
+// take makes next the arrangement, spelled so, as a step to undo, reporting whether it
+// changed.
+func (d *Doc) take(next synth.Arrangement, spell map[string]golit.Spelling) bool {
+	if reflect.DeepEqual(next, d.now) && maps.EqualFunc(spell, d.spell, sameSpelling) {
 		return false
 	}
 	if d.held && d.stepped {
-		d.hist.Amend(state{next})
+		d.hist.Amend(state{next, spell})
 	} else {
-		d.hist.Push(state{next})
+		d.hist.Push(state{next, spell})
 		d.stepped = true
 	}
-	d.set(next)
+	d.set(next, spell)
 	return true
 }
 
@@ -168,7 +195,7 @@ func (d *Doc) Release() { d.held = false }
 func (d *Doc) Undo() bool {
 	s, ok := d.hist.Undo()
 	if ok {
-		d.set(s.a)
+		d.set(s.a, s.spell)
 		d.stepped = false
 	}
 	return ok
@@ -177,15 +204,15 @@ func (d *Doc) Undo() bool {
 func (d *Doc) Redo() bool {
 	s, ok := d.hist.Redo()
 	if ok {
-		d.set(s.a)
+		d.set(s.a, s.spell)
 		d.stepped = false
 	}
 	return ok
 }
 
-func (d *Doc) set(a synth.Arrangement) {
-	d.now = a
-	d.dirty = !reflect.DeepEqual(d.now, d.lit.Value)
+func (d *Doc) set(a synth.Arrangement, spell map[string]golit.Spelling) {
+	d.now, d.spell = a, spell
+	d.dirty = !reflect.DeepEqual(d.now, d.lit.Value) || !maps.EqualFunc(d.spell, codeOf(d.lit.Spelled), sameSpelling)
 }
 
 // Source is the file as a save would write it: the source as loaded, with only what
@@ -199,7 +226,26 @@ func (d *Doc) write() ([]byte, *golit.Lit[synth.Arrangement], error) {
 	if !d.dirty {
 		return d.src, d.lit, nil
 	}
-	out, back, err := d.lit.Write(d.now, nil, diff(d.lit, d.now).origins)
+	c := compare(d.lit.Value, d.now, d.lit.Spelled, false)
+	spelled := maps.Clone(d.spell)
+	for src := range codeOf(d.lit.Spelled) {
+		if p, f := c.find(src); f != gone {
+			if _, ok := d.spell[p]; !ok {
+				spelled[p] = golit.Spelling{Kind: golit.Plain}
+			}
+		}
+	}
+	out, back, err := d.lit.Write(d.now, spelled, c.origins)
+	if err == nil {
+		var fixed []byte
+		if fixed, err = patchesImport(out); err == nil && !bytes.Equal(fixed, out) {
+			out = fixed
+			var f *golit.File
+			if f, err = golit.Parse(out); err == nil {
+				back, err = golit.ReadAt(f, findArrangement(d.now.ID), d.now, spellings)
+			}
+		}
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %v", d.Path, err)
 	}
@@ -248,12 +294,11 @@ func (d *Doc) reread() error {
 
 // Custom reports whether the value at path is written as code rather than a literal,
 // so the studio shows it but doesn't edit it. A path is field names and indexes into
-// the arrangement as edited: Custom("Tracks", 2, "Sends"). Anything the studio added is
-// literal.
+// the arrangement as edited: Custom("Tracks", 2, "Sends"). What the studio added is
+// literal, but for a patch set by its call.
 func (d *Doc) Custom(path ...any) bool {
-	paths, _ := sourcePath(reflect.ValueOf(d.lit.Value), reflect.ValueOf(d.now), path)
-	for _, p := range paths {
-		if s, ok := d.lit.Spelled[p]; ok && code(s) {
+	for _, p := range litPath(path) {
+		if _, ok := d.spell[p]; ok {
 			return true
 		}
 	}

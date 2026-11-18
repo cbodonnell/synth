@@ -7,25 +7,35 @@ import (
 	"github.com/cbodonnell/synth"
 )
 
-// Library is a game's music and sound: its arrangements, any songs written as code
-// instead, and its sound effects.
+// Library is a game's music and sound: its arrangements (songs, and sound effects of
+// Tempo 0), and any songs and sounds written as code instead.
 type Library struct {
 	Arrangements []synth.Arrangement
 	Songs        []synth.Song
 	Sounds       []synth.Song
+	// The directory the game ships its bake from, from where the studio runs; the
+	// studio's Bake button rebakes what's stale in it.
+	Bake string
 }
 
 // Music is every song, compiled.
-func (l Library) Music() []synth.Song {
+func (l Library) Music() []synth.Song { return append(l.compiled(true), l.Songs...) }
+
+// SoundEffects is every sound effect, compiled.
+func (l Library) SoundEffects() []synth.Song { return append(l.compiled(false), l.Sounds...) }
+
+func (l Library) compiled(music bool) []synth.Song {
 	var songs []synth.Song
 	for _, a := range l.Arrangements {
-		songs = append(songs, a.Song())
+		if a.Tempo > 0 == music {
+			songs = append(songs, a.Song())
+		}
 	}
-	return append(songs, l.Songs...)
+	return songs
 }
 
 // All is every song and sound, compiled.
-func (l Library) All() []synth.Song { return append(l.Music(), l.Sounds...) }
+func (l Library) All() []synth.Song { return append(l.Music(), l.SoundEffects()...) }
 
 // Arrangement is the arrangement with the ID, if the song is one.
 func (l Library) Arrangement(id string) (synth.Arrangement, bool) {
@@ -69,6 +79,11 @@ type View struct {
 	Browser bool
 	Mixer   bool     // the mixer in place of the arrangement
 	Folded  []string // group buses folded shut
+	Lanes   bool     // automation lanes shown
+
+	Devices bool   // the device chain in the detail, in place of the clip editor
+	Bus     string // the bus whose chain it shows, rather than the selected track's
+	Master  bool   // the master's chain, rather than the selected track's
 }
 
 func (v View) String() string {

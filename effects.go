@@ -567,3 +567,26 @@ func (ts TapeStop) Process(s Stereo) {
 		s.L[i], s.R[i] = 0, 0
 	}
 }
+
+// Normalize scales the whole buffer so its loudest sample lands at Peak: how a sound
+// effect's level is set, so loudness tiers are a device like any other.
+type Normalize struct {
+	Peak float64 // dB
+}
+
+func (n Normalize) Tail() float64 { return 0 }
+
+func (n Normalize) Process(s Stereo) {
+	var peak float32
+	for i := range s.L {
+		peak = max(peak, abs32(s.L[i]), abs32(s.R[i]))
+	}
+	if peak == 0 {
+		return
+	}
+	g := float32(dbToGain(n.Peak)) / peak
+	for i := range s.L {
+		s.L[i] *= g
+		s.R[i] *= g
+	}
+}

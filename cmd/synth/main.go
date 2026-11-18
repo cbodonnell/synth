@@ -7,5 +7,5 @@ import (
 )
 
 func main() {
-	studio.Main(studio.Library{Arrangements: songs.Arrangements(), Sounds: songs.Sounds()})
+	studio.Main(studio.Library{Arrangements: songs.Arrangements()})
 }

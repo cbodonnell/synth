@@ -34,15 +34,7 @@ type Take struct {
 
 // Render renders s as heard through m.
 func Render(r *synth.Renderer, s synth.Song, m Mix) Take {
-	if len(m.Solo) > 0 {
-		var parts []synth.Part
-		for _, p := range s.Parts {
-			if slices.Contains(m.Solo, p.Name) {
-				parts = append(parts, p)
-			}
-		}
-		s.Parts = parts
-	}
+	s = Soloed(s, m.Solo)
 	t := Take{Song: s, Loops: m.Loop && s.Loop}
 	if !t.Loops {
 		s.Loop = false
@@ -74,6 +66,41 @@ func Render(r *synth.Renderer, s synth.Song, m Mix) Take {
 		t.Buses[s.Buses[i].Name] = g
 	}
 	return t
+}
+
+// Soloed is s with only the parts soloed, at their level in the mix, or every part when
+// none is.
+func Soloed(s synth.Song, solo []string) synth.Song {
+	if len(solo) == 0 {
+		return s
+	}
+	s.Master = StemMaster(s)
+	var parts []synth.Part
+	for _, p := range s.Parts {
+		if slices.Contains(solo, p.Name) {
+			parts = append(parts, p)
+		}
+	}
+	s.Parts = parts
+	return s
+}
+
+// StemMaster is the master with its Normalize fixed at the gain it gives the whole mix,
+// so a stem plays at its level in the mix rather than normalized alone.
+func StemMaster(s synth.Song) []synth.Effect {
+	i := slices.IndexFunc(s.Master, func(e synth.Effect) bool { _, ok := e.(synth.Normalize); return ok })
+	if i < 0 {
+		return s.Master
+	}
+	pre := s
+	pre.Master, pre.Loop = s.Master[:i], false
+	peak := float64(synth.Render(pre).Peak())
+	if peak == 0 {
+		return s.Master
+	}
+	out := slices.Clone(s.Master)
+	out[i] = synth.Fader{Points: []synth.Point{{Value: s.Master[i].(synth.Normalize).Peak - 20*math.Log10(peak)}}}
+	return out
 }
 
 func mixIn(dst, src synth.Stereo) synth.Stereo {

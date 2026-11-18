@@ -106,8 +106,9 @@ func TestStepInputRestsAndHolds(t *testing.T) {
 
 func TestScalesSpellAndStack(t *testing.T) {
 	for _, a := range songs.Arrangements() {
-		_, ok := ParseScale(a.Key)
-		assert.True(t, ok, a.Key)
+		if _, ok := ParseScale(a.Key); !ok && a.Tempo > 0 {
+			t.Errorf("%s: key %q", a.ID, a.Key)
+		}
 	}
 	bb, _ := ParseScale("Bb minor")
 	var names []string

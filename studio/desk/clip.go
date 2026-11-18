@@ -38,11 +38,13 @@ type clipEditor struct {
 
 	top    float64 // the key at the piano roll's top edge
 	scroll float64 // steps scrolled off the left
+	zoom   float64 // how many times the clip's width a step is drawn, 1 fitting it
 	sel    []session.Ref
 	length int    // steps a drawn note holds
 	shown  string // the clip last shown, to find its notes when another is opened
 
 	drag   *clipDrag
+	nt     notesEdit
 	typing *typing
 	step   *stepInput
 	hint   string
@@ -75,23 +77,12 @@ type clipDrag struct {
 	typed *typing // what a click on the setting without a drag types into
 }
 
-// stepInput writes notes from the keyboard at a cursor that steps on.
+// stepInput writes notes from the keyboard at a cursor that steps on, in the octave and
+// at the velocity musical typing has.
 type stepInput struct {
 	cursor int
-	octave int
-	accent int
 	chord  int // the step the chord being held was struck on
 	held   []ebiten.Key
-}
-
-// The keys musical typing plays, and the semitones above the octave's C they play.
-var typingKeys = []struct {
-	key   ebiten.Key
-	semis int
-}{
-	{ebiten.KeyA, 0}, {ebiten.KeyW, 1}, {ebiten.KeyS, 2}, {ebiten.KeyE, 3}, {ebiten.KeyD, 4},
-	{ebiten.KeyF, 5}, {ebiten.KeyT, 6}, {ebiten.KeyG, 7}, {ebiten.KeyY, 8}, {ebiten.KeyH, 9},
-	{ebiten.KeyU, 10}, {ebiten.KeyJ, 11}, {ebiten.KeyK, 12},
 }
 
 // clipTarget is the clip open in the editor.
@@ -124,13 +115,17 @@ func (d *desk) target() (clipTarget, bool) {
 // openClip selects the track and opens its clip in the editor; "" closes it.
 func (d *desk) openClip(track, clip string) {
 	d.view.Track, d.view.Clip = track, clip
-	d.ce.sel, d.ce.step, d.ce.typing = nil, nil, nil
+	d.ce.sel, d.ce.step, d.ce.typing, d.ce.nt.picked = nil, nil, nil, nil
 }
 
-// detailOpen reports whether the window has room for the clip editor.
+// detailOpen reports whether the window has room for the clip editor, or the devices.
 func (d *desk) detailOpen() bool {
+	if d.view.Devices {
+		_, _, ok := d.chain()
+		return ok
+	}
 	_, ok := d.target()
-	return ok
+	return ok || d.sound()
 }
 
 func (d *desk) musicalScale() session.Scale {
@@ -143,8 +138,6 @@ func (c *clipEditor) canWrite(d *desk, t clipTarget) (bool, string) {
 	switch {
 	case d.doc == nil:
 		return false, d.readOnly()
-	case t.err != nil:
-		return false, "notes off the grid: edit them in code"
 	case !d.editable("Tracks", t.track, "Clips", t.clip, "Bars"):
 		return false, custom
 	}
@@ -190,7 +183,7 @@ func (c *clipEditor) drumRow(d *desk) image.Rectangle {
 }
 
 func (c *clipEditor) stepW(d *desk, t clipTarget) float64 {
-	return math.Max(float64(c.grid(d).Dx())/float64(max(t.g.Steps(), 1)), d.px(minStepW))
+	return math.Max(float64(c.grid(d).Dx())/float64(max(t.g.Steps(), 1))*math.Max(c.zoom, 1), d.px(minStepW))
 }
 
 func (c *clipEditor) x(d *desk, t clipTarget, step float64) float64 {
@@ -217,12 +210,15 @@ func (c *clipEditor) show(d *desk, t clipTarget) {
 	if c.shown == id {
 		return
 	}
-	c.shown, c.scroll, c.length = id, 0, 1
+	c.shown, c.scroll, c.length, c.zoom = id, 0, 1, 1
 	lo, hi := 128, -1
 	for _, e := range t.g.Events {
 		for _, p := range e.Keys {
 			lo, hi = min(lo, p.Key, p.Key+p.Slide), max(hi, p.Key, p.Key+p.Slide)
 		}
+	}
+	for _, n := range t.c.Notes {
+		lo, hi = min(lo, int(n.Key), int(n.Key+n.Slide)), max(hi, int(n.Key), int(n.Key+n.Slide))
 	}
 	mid := 60.0
 	if hi >= 0 {
@@ -230,6 +226,15 @@ func (c *clipEditor) show(d *desk, t clipTarget) {
 	}
 	rows := float64(c.grid(d).Dy()) / d.px(keyRowH)
 	c.top = math.Round(mid + rows/2)
+	c.clampScroll(d, t)
+}
+
+// zoomAbout zooms by the factor, keeping the step under x where it is.
+func (c *clipEditor) zoomAbout(d *desk, t clipTarget, x, by float64) {
+	g := float64(c.grid(d).Min.X)
+	step := c.scroll + (x-g)/c.stepW(d, t)
+	c.zoom = math.Max(1, math.Min(math.Max(c.zoom, 1)*by, 64))
+	c.scroll = step - (x-g)/c.stepW(d, t)
 	c.clampScroll(d, t)
 }
 
@@ -261,10 +266,12 @@ func (c *clipEditor) update(d *desk) {
 		return
 	}
 	c.show(d, t)
-	if t.err == nil {
-		c.sel = slices.DeleteFunc(c.sel, func(r session.Ref) bool { return !t.g.Has(r) })
+	if t.err != nil {
+		c.updateNotes(d, t)
+		return
 	}
-	if c.step != nil && t.err == nil {
+	c.sel = slices.DeleteFunc(c.sel, func(r session.Ref) bool { return !t.g.Has(r) })
+	if c.step != nil {
 		c.step.cursor = min(c.step.cursor, t.g.Steps()-1)
 	}
 	if c.drag != nil {
@@ -280,11 +287,12 @@ func (c *clipEditor) update(d *desk) {
 		c.updateSettings(d, t, pt)
 		return
 	}
-	if t.err != nil {
-		c.hint = why
-		return
-	}
-	if wx, wy := ebiten.Wheel(); wx != 0 || wy != 0 {
+	command := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyMeta)
+	if _, wy := ebiten.Wheel(); command && wy != 0 {
+		c.zoomAbout(d, t, float64(pt.X), math.Pow(1.1, wy))
+	} else if d.pinch != 0 {
+		c.zoomAbout(d, t, float64(pt.X), 1+d.pinch)
+	} else if wx, wy := ebiten.Wheel(); wx != 0 || wy != 0 {
 		if ebiten.IsKeyPressed(ebiten.KeyShift) || wx != 0 {
 			dx := wx
 			if dx == 0 {
@@ -464,6 +472,9 @@ func (c *clipEditor) keys(d *desk) bool {
 		c.step = nil
 		return false
 	}
+	if t.err != nil {
+		return c.notesKeys(d, t)
+	}
 	command := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyMeta)
 	pressed := inpututil.IsKeyJustPressed
 	can, _ := c.canWrite(d, t)
@@ -480,7 +491,7 @@ func (c *clipEditor) keys(d *desk) bool {
 			c.step = nil
 			return true
 		}
-		c.step = &stepInput{octave: 4, chord: -1}
+		c.step = &stepInput{chord: -1}
 		if len(c.sel) > 0 {
 			c.step.cursor = c.sel[0].Step
 		}
@@ -561,7 +572,7 @@ func (c *clipEditor) stepKeys(d *desk, t clipTarget) {
 		if !pressed(k.key) {
 			continue
 		}
-		key := (s.octave+1)*12 + k.semis
+		key := d.kb.key(k.semis)
 		var keys []int
 		if !g.Hit {
 			keys = []int{key}
@@ -570,7 +581,7 @@ func (c *clipEditor) stepKeys(d *desk, t clipTarget) {
 			g = g.Draw(s.chord, 1, keys...)
 		} else {
 			s.chord = s.cursor
-			g = g.Rest(s.cursor).Draw(s.cursor, 1, keys...).Accent(s.cursor, s.accent)
+			g = g.Rest(s.cursor).Draw(s.cursor, 1, keys...).Accent(s.cursor, d.kb.accent)
 			s.cursor = (s.cursor + 1) % n
 		}
 		s.held = append(s.held, k.key)
@@ -595,16 +606,10 @@ func (c *clipEditor) stepKeys(d *desk, t clipTarget) {
 		s.cursor = (s.cursor + n - 1) % n
 	case pressed(ebiten.KeyRight):
 		s.cursor = (s.cursor + 1) % n
-	case pressed(ebiten.KeyZ):
-		s.octave = max(s.octave-1, 0)
-	case pressed(ebiten.KeyX):
-		s.octave = min(s.octave+1, 8)
-	case pressed(ebiten.KeyC):
-		s.accent = max(s.accent-1, -1)
-	case pressed(ebiten.KeyV):
-		s.accent = min(s.accent+1, 1)
+	default:
+		d.kb.shift()
 	}
-	if len(played) > 0 {
+	if len(played) > 0 && !d.kb.on {
 		if i := g.Start(s.chord); i >= 0 {
 			d.audition(t, played, g.Events[i].Velocity(t.c.Vel))
 		}
@@ -716,7 +721,7 @@ func (c *clipEditor) settingRows(d *desk, t clipTarget) []clipSetting {
 		},
 	}}
 	if t.err != nil {
-		return rows
+		return append(rows, c.notesRows(d, t)...)
 	}
 	steps := d.editable("Tracks", t.track, "Clips", t.clip, "Step")
 	can, _ := c.canWrite(d, t)
@@ -886,9 +891,7 @@ func (c *clipEditor) draw(dst *ebiten.Image, d *desk) {
 	c.drawHead(area, d, t)
 	c.drawSettings(area, d, t)
 	if t.err != nil {
-		g := c.grid(d)
-		drawText(area, d.fonts.text, fmt.Sprintf("%d notes off the grid: edit them in code", len(t.c.Notes)),
-			float64(g.Min.X)+d.px(12), float64(g.Min.Y)+d.px(20), dim, text.AlignStart)
+		c.drawNotes(area, d, t)
 		return
 	}
 	if t.g.Hit {
@@ -915,9 +918,8 @@ func (c *clipEditor) drawHead(dst *ebiten.Image, d *desk, t clipTarget) {
 		about = fmt.Sprintf("%s · %s · notes, played %d times", t.c.Name, tr.Name, plays)
 	}
 	if s := c.step; s != nil {
-		accent := map[int]string{1: "accented", 0: "plain", -1: "ghosted"}[s.accent]
 		about += fmt.Sprintf("   ·   step input at %d: A–K white keys, W E T Y U black · Z X octave (C%d) · C V %s · tab rest · - hold · esc done",
-			s.cursor+1, s.octave, accent)
+			s.cursor+1, d.kb.octave, d.kb.accentName())
 	}
 	drawText(dst, d.fonts.text, fit(d.fonts.text, about, float64(h.Dx())-d.px(20)), float64(h.Min.X)+d.px(12), float64(h.Min.Y+h.Dy()/2), ink, text.AlignStart)
 }
@@ -980,6 +982,42 @@ func (c *clipEditor) playing(d *desk, t clipTarget) (float64, bool) {
 
 func (c *clipEditor) drawRoll(dst *ebiten.Image, d *desk, t clipTarget) {
 	g := c.grid(d)
+	roll := dst.SubImage(g).(*ebiten.Image)
+	c.drawKeys(dst, d)
+	c.drawColumns(roll, d, t, float64(g.Min.Y), float64(g.Max.Y))
+
+	tr := d.layout.Arrangement.Tracks[t.track]
+	sw := c.stepW(d, t)
+	rowH := d.px(keyRowH)
+	for _, e := range t.g.Events {
+		x0, x1 := c.x(d, t, float64(e.Step)), c.x(d, t, float64(e.Step+e.Len))
+		v := e.Velocity(t.c.Vel)
+		for _, p := range e.Keys {
+			y := c.y(d, p.Key)
+			on := slices.Contains(c.sel, session.Ref{Step: e.Step, Key: p.Key})
+			body := hue(tr.Name, 0.45+0.45*v)
+			if on {
+				body = color.RGBA{0xff, 0xc0, 0x70, 0xff}
+			}
+			fillF(roll, x0+1, y+1, x1-x0-2, rowH-2, body)
+			if hits := max(e.Hits, 1); hits > 1 {
+				span := (x1 - x0) / float64(hits)
+				for h := 1; h < hits; h++ {
+					line(roll, x0+span*float64(h), y+1, x0+span*float64(h), y+rowH-1, d.px(1.5), ground)
+				}
+			}
+			if p.Slide != 0 {
+				ty := c.y(d, p.Key+p.Slide)
+				line(roll, x0+math.Min(sw/2, d.px(6)), y+rowH/2, x1-1, ty+rowH/2, d.px(1.5), ink)
+				fillF(roll, x1-d.px(4), ty+rowH/4, d.px(4), rowH/2, ink)
+			}
+		}
+	}
+}
+
+// drawKeys draws the keyboard and the piano roll's rows, the scale's keys lit.
+func (c *clipEditor) drawKeys(dst *ebiten.Image, d *desk) {
+	g := c.grid(d)
 	k := c.keyboard(d)
 	roll := dst.SubImage(g).(*ebiten.Image)
 	keys := dst.SubImage(k).(*ebiten.Image)
@@ -1014,34 +1052,6 @@ func (c *clipEditor) drawRoll(dst *ebiten.Image, d *desk, t clipTarget) {
 		fillF(keys, float64(k.Min.X), y+1, float64(k.Dx())-d.px(2), rowH-1, kc)
 		if key%12 == 0 {
 			drawText(keys, d.fonts.num, synth.KeyName(key), float64(k.Max.X)-d.px(5), y+rowH/2, ground, text.AlignEnd)
-		}
-	}
-	c.drawColumns(roll, d, t, float64(g.Min.Y), float64(g.Max.Y))
-
-	tr := d.layout.Arrangement.Tracks[t.track]
-	sw := c.stepW(d, t)
-	for _, e := range t.g.Events {
-		x0, x1 := c.x(d, t, float64(e.Step)), c.x(d, t, float64(e.Step+e.Len))
-		v := e.Velocity(t.c.Vel)
-		for _, p := range e.Keys {
-			y := c.y(d, p.Key)
-			on := slices.Contains(c.sel, session.Ref{Step: e.Step, Key: p.Key})
-			body := hue(tr.Name, 0.45+0.45*v)
-			if on {
-				body = color.RGBA{0xff, 0xc0, 0x70, 0xff}
-			}
-			fillF(roll, x0+1, y+1, x1-x0-2, rowH-2, body)
-			if hits := max(e.Hits, 1); hits > 1 {
-				span := (x1 - x0) / float64(hits)
-				for h := 1; h < hits; h++ {
-					line(roll, x0+span*float64(h), y+1, x0+span*float64(h), y+rowH-1, d.px(1.5), ground)
-				}
-			}
-			if p.Slide != 0 {
-				ty := c.y(d, p.Key+p.Slide)
-				line(roll, x0+math.Min(sw/2, d.px(6)), y+rowH/2, x1-1, ty+rowH/2, d.px(1.5), ink)
-				fillF(roll, x1-d.px(4), ty+rowH/4, d.px(4), rowH/2, ink)
-			}
 		}
 	}
 }

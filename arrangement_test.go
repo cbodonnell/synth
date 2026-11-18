@@ -1,6 +1,7 @@
 package synth
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,6 +94,62 @@ func TestArrangementValidate(t *testing.T) {
 		edit(&a)
 		assert.Error(t, a.Validate(), name)
 	}
+}
+
+func blip() Arrangement {
+	return Arrangement{
+		ID: "blip", Vary: Variation{Pitch: 1, Takes: 2}, Voices: 3, Priority: 2,
+		Tracks: []Track{
+			{
+				Name: "tone", Patch: tone(Sine),
+				Clips: []Clip{{Name: "a", Notes: []Note{{At: 0.05, Dur: 0.1, Key: 69}, {At: 0.25, Dur: 0.2, Key: 72}}}},
+				Play:  []Play{{Clip: "a", Bar: 1}},
+			},
+		},
+		Master: []Effect{Normalize{Peak: -6}, Fader{Points: []Point{{At: 0.3, Value: 0}}}},
+	}
+}
+
+func TestSoundArrangementIsInSeconds(t *testing.T) {
+	a := blip()
+	require.NoError(t, a.Validate())
+	s := a.Song()
+	assert.Zero(t, s.Length)
+	assert.Equal(t, Meter{}, s.Meter)
+	assert.Equal(t, a.Vary, s.Vary)
+	assert.Equal(t, 3, s.Voices)
+	assert.Equal(t, 2, s.Priority)
+	var at []float64
+	for _, n := range s.Parts[0].Notes {
+		at = append(at, n.At)
+	}
+	assert.Equal(t, []float64{0.05, 0.25}, at)
+	assert.Equal(t, 0.2, s.Parts[0].Notes[1].Dur)
+	assert.Equal(t, 0.3, s.Master[1].(Fader).Points[0].At)
+	assert.Greater(t, Render(s).Seconds(), 0.45)
+
+	for name, edit := range map[string]func(*Arrangement){
+		"sections":  func(a *Arrangement) { a.Sections = []Section{{"A", 1}} },
+		"bars":      func(a *Arrangement) { a.Tracks[0].Clips[0] = Clip{Name: "a", Step: 0.1, Bars: []string{"C4"}} },
+		"later bar": func(a *Arrangement) { a.Tracks[0].Play[0].Bar = 2 },
+		"repeated":  func(a *Arrangement) { a.Tracks[0].Play[0].Times = 2 },
+	} {
+		a := blip()
+		edit(&a)
+		assert.Error(t, a.Validate(), name)
+	}
+}
+
+func TestNormalizeLandsThePeak(t *testing.T) {
+	for _, peak := range []float64{-12, -1} {
+		a := blip()
+		a.Master = []Effect{Normalize{Peak: peak}}
+		got := 20 * math.Log10(float64(Render(a.Song()).Peak()))
+		assert.InDelta(t, peak, got, 0.01)
+	}
+	silent := Stereo{L: make([]float32, 8), R: make([]float32, 8)}
+	Normalize{Peak: -6}.Process(silent)
+	assert.Zero(t, silent.Peak())
 }
 
 func TestPhraseWrittenInPiecesDriftsAsOne(t *testing.T) {

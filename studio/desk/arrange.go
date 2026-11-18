@@ -227,7 +227,7 @@ func (t *timeline) arranging(d *desk, x, y float64) bool {
 			}
 			return false
 		}
-		if d.layout.Custom {
+		if d.layout.Custom || !timed {
 			return false
 		}
 		b := lane.Blocks[k]

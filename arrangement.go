@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -79,7 +80,8 @@ type Clip struct {
 	Hit  string
 	Bars []string
 
-	// At and Dur in beats from the clip's start, which spans Length bars (0 means 1).
+	// At and Dur in beats from the clip's start (seconds in a sound effect), which spans
+	// Length bars (0 means 1).
 	Notes  []Note
 	Length int
 }
@@ -96,27 +98,47 @@ type Play struct {
 // writes in beats.
 type beatTimed interface{ inSeconds(beat float64) Effect }
 
-func scalePoints(p []Point, k float64) []Point {
-	out := make([]Point, len(p))
-	for i, pt := range p {
-		out[i] = Point{At: pt.At * k, Value: pt.Value}
+var pointsType = reflect.TypeFor[[]Point]()
+
+// scalePoints scales the At of every []Point field by k: synth's automation, and a
+// game's own effect's.
+func scalePoints(e Effect, k float64) Effect {
+	v := reflect.ValueOf(e)
+	ptr := v.Kind() == reflect.Pointer
+	if ptr {
+		if v.IsNil() {
+			return e
+		}
+		v = v.Elem()
 	}
-	return out
-}
-
-func (a AutoFilter) inSeconds(beat float64) Effect {
-	a.Points = scalePoints(a.Points, beat)
-	return a
-}
-
-func (f Fader) inSeconds(beat float64) Effect {
-	f.Points = scalePoints(f.Points, beat)
-	return f
-}
-
-func (p Panner) inSeconds(beat float64) Effect {
-	p.Points = scalePoints(p.Points, beat)
-	return p
+	if v.Kind() != reflect.Struct {
+		return e
+	}
+	c := reflect.New(v.Type()).Elem()
+	c.Set(v)
+	scaled := false
+	for i := range v.NumField() {
+		if f := v.Type().Field(i); !f.IsExported() || f.Type != pointsType {
+			continue
+		}
+		pts := v.Field(i).Interface().([]Point)
+		if pts == nil {
+			continue
+		}
+		out := make([]Point, len(pts))
+		for j, pt := range pts {
+			out[j] = Point{At: pt.At * k, Value: pt.Value}
+		}
+		c.Field(i).Set(reflect.ValueOf(out))
+		scaled = true
+	}
+	switch {
+	case !scaled:
+		return e
+	case ptr:
+		return c.Addr().Interface().(Effect)
+	}
+	return c.Interface().(Effect)
 }
 
 func (ts TapeStop) inSeconds(beat float64) Effect {
@@ -272,8 +294,8 @@ func (a Arrangement) chain(fx []Effect, notes map[string][]Note) []Effect {
 	}
 	out := make([]Effect, len(fx))
 	for i, e := range fx {
-		if b, ok := e.(beatTimed); ok && a.Tempo > 0 {
-			e = b.inSeconds(a.beat())
+		if a.Tempo > 0 {
+			e = scaleTime(e, a.beat())
 		}
 		if sc, ok := e.(Sidechain); ok && sc.Key != "" {
 			var on []Note
@@ -354,6 +376,10 @@ func (a Arrangement) Validate() error {
 	if a.Loop != "" && !sections[a.Loop] {
 		fail("Loop %q names no section", a.Loop)
 	}
+	sound := a.Tempo == 0
+	if sound && (len(a.Sections) > 0 || a.Meter != nil) {
+		fail("a sound effect (Tempo 0) has no sections or meter")
+	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -413,6 +439,9 @@ func (a Arrangement) Validate() error {
 			if len(c.Bars) > 0 && len(c.Notes) > 0 {
 				fail("%s clip %q: holds both Bars and Notes", where, c.Name)
 			}
+			if sound && len(c.Bars) > 0 {
+				fail("%s clip %q: a sound effect's clips hold Notes", where, c.Name)
+			}
 			if len(c.Bars) > 0 && c.Step <= 0 {
 				fail("%s clip %q: Bars need a Step", where, c.Name)
 			}
@@ -434,6 +463,13 @@ func (a Arrangement) Validate() error {
 				continue
 			}
 			from, to := p.Bar-1, p.Bar-1+max(p.Times, 1)*c.bars()
+			if sound {
+				if p.Bar != 1 || p.Times > 1 {
+					fail("%s: a sound effect plays %q once from its start, at bar 1", where, p.Clip)
+				}
+				spans = append(spans, span{from, to})
+				continue
+			}
 			if to > total {
 				fail("%s: play of %q at bar %d runs past the song's %d bars", where, p.Clip, p.Bar, total)
 			}
@@ -478,8 +514,17 @@ func (c Clip) parse() (err error) {
 // InBeats is the effect with its song positions and durations in beats at tempo, as an
 // arrangement writes them.
 func InBeats(e Effect, tempo float64) Effect {
-	if b, ok := e.(beatTimed); ok && tempo > 0 {
-		return b.inSeconds(tempo / 60)
+	if tempo <= 0 {
+		return e
+	}
+	return scaleTime(e, tempo/60)
+}
+
+// scaleTime is e with its song positions and durations scaled by k.
+func scaleTime(e Effect, k float64) Effect {
+	e = scalePoints(e, k)
+	if b, ok := e.(beatTimed); ok {
+		return b.inSeconds(k)
 	}
 	return e
 }

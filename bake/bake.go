@@ -62,7 +62,10 @@ func (m Manifest) Fresh(s synth.Song) (Entry, bool) {
 
 // Bake writes every song to dir and removes what no song claims any more. A song whose
 // bake is already fresh is left alone, so rebaking only touches what changed.
-func Bake(dir string, songs ...synth.Song) error {
+func Bake(dir string, songs ...synth.Song) error { return BakeEach(dir, nil, songs...) }
+
+// BakeEach is Bake, telling baking each song's ID as it begins rendering it.
+func BakeEach(dir string, baking func(id string), songs ...synth.Song) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -84,6 +87,9 @@ func Bake(dir string, songs ...synth.Song) error {
 		if e, ok := old.Fresh(s); ok && present(os.DirFS(dir), e) {
 			m[s.ID] = e
 			continue
+		}
+		if baking != nil {
+			baking(s.ID)
 		}
 		e, err := bake(dir, s)
 		if err != nil {
