@@ -124,3 +124,20 @@ func TestStoppedMusicLetsItsDecoderGo(t *testing.T) {
 		}
 	}
 }
+
+type steady float32
+
+func (s steady) Mix(out []float32) {
+	for i := range out {
+		out[i] = float32(s)
+	}
+}
+
+func TestBusAddsLiveSources(t *testing.T) {
+	music, effects := newStream(1, 0), newStream(1, 0)
+	b := newBus(music, effects, newPreview(), defaultCeiling)
+	effects.play(newVoice("fx", &memory{pcm: clip(0.25)}, 1, 1), 0)
+	b.live = append(b.live, steady(0.25))
+	out := pull(t, b, 2)
+	assert.Equal(t, clip(0.5, 0.25), out)
+}

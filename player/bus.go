@@ -15,12 +15,13 @@ const (
 	limiterRelease = 0.15 // seconds
 )
 
-// bus is the one reader Ebiten plays: music and effects summed, then limited, so sounds
-// that pile up together can't clip however many land at once.
+// bus is the one reader the output plays: music, effects and live sources summed, then
+// limited, so sounds that pile up together can't clip however many land at once.
 type bus struct {
 	mu             sync.Mutex
 	music, effects *stream
 	preview        *Preview
+	live           []Source
 	limit          limiter
 	pos            int64
 	m, e           []float32
@@ -42,6 +43,12 @@ func (b *bus) Read(p []byte) (int, error) {
 	b.effects.mix(e)
 	for i := range m {
 		m[i] += e[i]
+	}
+	for _, src := range b.live {
+		src.Mix(e)
+		for i := range m {
+			m[i] += e[i]
+		}
 	}
 	b.preview.mix(m)
 	b.limit.process(m)

@@ -128,6 +128,20 @@ func New(opts ...Option) *Player {
 	return p
 }
 
+// Source is sound made as it plays, such as wind that follows a game's state.
+type Source interface {
+	// Mix overwrites out, interleaved stereo, with the next len(out)/2 frames.
+	Mix(out []float32)
+}
+
+// Live plays src for as long as the player runs, through the same output as the
+// effects, so it is heard as soon as they are. src sets its own level.
+func (p *Player) Live(src Source) {
+	p.bus.mu.Lock()
+	defer p.bus.mu.Unlock()
+	p.bus.live = append(p.bus.live, src)
+}
+
 // Preview is the voice the studio plays songs through as it edits them.
 func (p *Player) Preview() *Preview { return p.preview }
 
