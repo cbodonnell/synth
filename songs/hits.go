@@ -9,7 +9,7 @@ import (
 func Hits() []synth.Arrangement {
 	return []synth.Arrangement{
 		kickSound, snareSound, hihatSound, laserSound, bellSound, epianoSound, bassSound,
-		harpsichordSound, coinSound,
+		harpsichordSound, coinSound, pianoSound, feltPianoSound,
 	}
 }
 
@@ -130,6 +130,41 @@ var coinSound = synth.Arrangement{
 					Notes: []synth.Note{{Dur: 0.063, Key: 83, Vel: 0.8}, {At: 0.07, Dur: 0.126, Key: 88, Vel: 0.8}},
 				},
 			},
+			Play: []synth.Play{{Clip: "a", Bar: 1}},
+		},
+	},
+}
+
+// The pianos play A3 soft, then hard, then an A minor chord left to ring.
+var pianoSound = synth.Arrangement{
+	ID:   "piano",
+	Name: "piano",
+	Tracks: []synth.Track{
+		{
+			Name:  "piano",
+			Patch: patches.GrandPiano(),
+			Clips: []synth.Clip{{Name: "a", Notes: []synth.Note{
+				{Dur: 1.4, Key: 57, Vel: 0.35}, {At: 1.5, Dur: 1.4, Key: 57, Vel: 1},
+				{At: 3, Dur: 4, Key: 45, Vel: 0.7}, {At: 3, Dur: 4, Key: 52, Vel: 0.6},
+				{At: 3, Dur: 4, Key: 60, Vel: 0.6}, {At: 3, Dur: 4, Key: 64, Vel: 0.65},
+			}}},
+			Play: []synth.Play{{Clip: "a", Bar: 1}},
+		},
+	},
+}
+
+var feltPianoSound = synth.Arrangement{
+	ID:   "felt-piano",
+	Name: "felt piano",
+	Tracks: []synth.Track{
+		{
+			Name:  "felt piano",
+			Patch: patches.FeltPiano(),
+			Clips: []synth.Clip{{Name: "a", Notes: []synth.Note{
+				{Dur: 1.4, Key: 57, Vel: 0.35}, {At: 1.5, Dur: 1.4, Key: 57, Vel: 1},
+				{At: 3, Dur: 4, Key: 45, Vel: 0.7}, {At: 3, Dur: 4, Key: 52, Vel: 0.6},
+				{At: 3, Dur: 4, Key: 60, Vel: 0.6}, {At: 3, Dur: 4, Key: 64, Vel: 0.65},
+			}}},
 			Play: []synth.Play{{Clip: "a", Bar: 1}},
 		},
 	},

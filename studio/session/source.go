@@ -65,11 +65,13 @@ var patchCalls = map[string]func() synth.Patch{
 	"OpenHat": patches.OpenHat, "Harpsichord": patches.Harpsichord,
 	"OctaveSynth": patches.OctaveSynth, "Recorder": patches.Recorder,
 	"PipeOrgan": patches.PipeOrgan, "Tick": patches.Tick, "Bass": patches.Bass,
-	"GrandPiano": patches.GrandPiano, "EPiano": patches.EPiano, "Bell": patches.Bell,
+	"GrandPiano": patches.GrandPiano, "FeltPiano": patches.FeltPiano, "EPiano": patches.EPiano, "Bell": patches.Bell,
 	"Lead": patches.Lead, "Kick": patches.Kick, "Snare": patches.Snare, "HiHat": patches.HiHat,
 	"Laser": patches.Laser, "Coin": patches.Coin, "EightOhEight": patches.EightOhEight,
 	"TrapKick": patches.TrapKick, "TrapSnare": patches.TrapSnare, "Brass": patches.Brass,
-	"AirHorn": patches.AirHorn,
+	"AirHorn": patches.AirHorn, "Strings": patches.Strings, "Tremolo": patches.Tremolo,
+	"Spiccato": patches.Spiccato, "Horns": patches.Horns, "Timpani": patches.Timpani,
+	"Taiko": patches.Taiko, "Choir": patches.Choir,
 }
 
 // patchCall is the call that makes p, or "".
@@ -110,7 +112,7 @@ func chainCall(fx []synth.Effect) string {
 }
 
 var enums = map[reflect.Type][]string{
-	reflect.TypeFor[synth.Wave]():       {"Sine", "Triangle", "Saw", "Pulse", "Noise", "Pluck"},
+	reflect.TypeFor[synth.Wave]():       {"Sine", "Triangle", "Saw", "Pulse", "Noise", "Pluck", "Strike"},
 	reflect.TypeFor[synth.FilterMode](): {"LowPass", "HighPass", "BandPass", "Notch"},
 	reflect.TypeFor[synth.BandKind]():   {"Peak", "LowCut", "HighCut", "LowShelf", "HighShelf"},
 	reflect.TypeFor[synth.LFOTarget]():  {"Vibrato", "Wah", "Tremolo", "PWM", "AutoPan"},

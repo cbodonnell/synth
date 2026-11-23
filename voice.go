@@ -96,6 +96,12 @@ func renderVoice(dst Stereo, start int, p Patch, n Note, v unisonVoice) {
 				hz = o.Fixed * s.ratio
 			}
 			s.pluck = newPluck(hz, o.String, bends, newRNG(mixSeed(v.seed, uint64(i), 1)))
+		case Strike:
+			hz := Hz(n.Key) * s.ratio
+			if o.Fixed > 0 {
+				hz = o.Fixed * s.ratio
+			}
+			s.pluck = newStrike(hz, o.String, vel, bends)
 		case Noise:
 			s.noise = newRNG(mixSeed(v.seed, uint64(i), 2))
 		}
@@ -201,7 +207,7 @@ func (s *oscState) next(base, t, pwm float64) float64 {
 	dt := hz / SampleRate
 
 	switch s.osc.Wave {
-	case Pluck:
+	case Pluck, Strike:
 		return s.pluck.next(hz)
 	case Noise:
 		return s.noise.float()

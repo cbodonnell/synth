@@ -88,7 +88,7 @@ var interstellar = synth.Arrangement{
 			Play: []synth.Play{{Clip: "A", Bar: 17, Times: 4}},
 		},
 		{
-			Name: "piano", Patch: patches.GrandPiano(), Level: 4.1, Pan: -0.25,
+			Name: "piano", Patch: patches.GrandPiano(), Level: 3.6, Pan: -0.25,
 			Sends: []synth.Send{{Bus: "nave", Level: -9.1}},
 			Clips: []synth.Clip{{Name: "A", Step: 1.0 / 3, Vel: 0.45, Humanize: 0.006, Seed: 1, Pedal: true, Bars: []string{
 				"A2 E3 A3 C4 A3 E3",
@@ -103,7 +103,7 @@ var interstellar = synth.Arrangement{
 			Play: []synth.Play{{Clip: "A", Bar: 9, Times: 5}},
 		},
 		{
-			Name: "piano tune", Patch: patches.GrandPiano(), Level: 2.9, Pan: 0.2,
+			Name: "piano tune", Patch: patches.GrandPiano(), Level: 2.3, Pan: 0.2,
 			Sends: []synth.Send{{Bus: "nave", Level: -8}},
 			Clips: []synth.Clip{{Name: "A", Step: 1.0 / 3, Gate: 0.95, Vel: 0.6, Humanize: 0.006, Seed: 3, Bars: []string{
 				"E6 - - - D6 C6",
@@ -118,7 +118,7 @@ var interstellar = synth.Arrangement{
 			Play: []synth.Play{{Clip: "A", Bar: 25, Times: 2}},
 		},
 		{
-			Name: "piano octave", Patch: patches.GrandPiano(), Level: 2.9, Pan: 0.2,
+			Name: "piano octave", Patch: patches.GrandPiano(), Level: 3.2, Pan: 0.2,
 			Sends: []synth.Send{{Bus: "nave", Level: -8}},
 			Clips: []synth.Clip{{Name: "A", Step: 1.0 / 3, Gate: 0.95, Vel: 0.42, Humanize: 0.006, Seed: 3, Bars: []string{
 				"E5 - - - D5 C5",

@@ -127,6 +127,84 @@ func TestPluckIsInTune(t *testing.T) {
 	}
 }
 
+func TestStrikeIsInTune(t *testing.T) {
+	for _, name := range []string{"A0", "A1", "F3", "Db5", "A6", "C8"} {
+		key := MustKey(name)
+		p := Patch{Oscs: []Osc{{Wave: Strike, String: String{Brightness: 0.6}}}}
+		out := Render(oneNote(p, key, 0, 3))
+		// Its stretched overtones pull an autocorrelation sharp, so this reads the
+		// fundamental itself, once the hammer's push has been fed in, over long enough
+		// that a bass string's strong overtones don't lean on it.
+		got := peakHz(out.L[SampleRate/2:SampleRate/2+2*SampleRate], Hz(key))
+		assert.InDeltaf(t, 0, 1200*math.Log2(got/Hz(key)), 3, "%s: %.2fHz", name, got)
+	}
+}
+
+// peakHz finds the strongest frequency within a quarter tone of near.
+func peakHz(x []float32, near float64) float64 {
+	best, at := -1.0, near
+	for c := -50.0; c <= 50; c += 0.25 {
+		f := near * math.Pow(2, c/1200)
+		var re, im float64
+		for i, v := range x {
+			w := 0.5 - 0.5*math.Cos(2*math.Pi*float64(i)/float64(len(x)))
+			re += w * float64(v) * math.Cos(2*math.Pi*f*float64(i)/SampleRate)
+			im += w * float64(v) * math.Sin(2*math.Pi*f*float64(i)/SampleRate)
+		}
+		if m := re*re + im*im; m > best {
+			best, at = m, f
+		}
+	}
+	return at
+}
+
+func TestStrikeOvertonesRingSharp(t *testing.T) {
+	key := MustKey("A2")
+	p := Patch{Oscs: []Osc{{Wave: Strike, String: String{Brightness: 1}}}}
+	out := Render(oneNote(p, key, 0, 1.5))
+	x := out.L[SampleRate/3 : SampleRate/3+SampleRate/2]
+	f0 := peakHz(x, Hz(key))
+	sixth := 1200 * math.Log2(peakHz(x, 6*Hz(key))/(6*f0))
+	assert.Greater(t, sixth, 1.0)
+	assert.Less(t, sixth, 40.0)
+}
+
+func TestStrikeBuildsAfterTheHammer(t *testing.T) {
+	level := func(x []float32) float64 {
+		var e float64
+		for _, v := range x {
+			e += float64(v) * float64(v)
+		}
+		return 10 * math.Log10(e/float64(len(x)))
+	}
+	key := MustKey("A3")
+	p := Patch{Oscs: []Osc{{Wave: Strike, String: String{Brightness: 0.6}}}}
+	out := Render(oneNote(p, key, 0, 1))
+	period := int(SampleRate / Hz(key))
+	peak := math.Inf(-1)
+	for i := 0; i+period < SampleRate/10; i += period {
+		peak = math.Max(peak, level(out.L[i:i+period]))
+	}
+	assert.Less(t, level(out.L[:period]), peak-2)
+}
+
+func TestHarderStrikeIsBrighter(t *testing.T) {
+	centroid := func(vel float64) float64 {
+		p := Patch{Oscs: []Osc{{Wave: Strike, String: String{Brightness: 0.7}}}, Velocity: 1}
+		s := Song{ID: "t", Parts: []Part{{Name: "p", Patch: p, Notes: []Note{{Dur: 0.5, Key: MustKey("C4"), Vel: vel}}}}}
+		out := Render(s)
+		var num, den float64
+		for i := 1; i < 2400; i++ {
+			d := float64(out.L[i] - out.L[i-1])
+			v := float64(out.L[i])
+			num += d * d
+			den += v * v
+		}
+		return num / den
+	}
+	assert.Greater(t, centroid(1), centroid(0.3))
+}
+
 func loopSong() Song {
 	pad := tone(Triangle)
 	pad.Amp.Release = 0.4

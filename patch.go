@@ -31,6 +31,10 @@ const (
 	Noise
 	// Pluck is a Karplus-Strong string: a burst of noise ringing in a tuned delay line.
 	Pluck
+	// Strike is a stiff string struck by a felt hammer: a piano's. Its String's
+	// Brightness is the hammer's hardness, which velocity scales; Pick is where it
+	// strikes, 0 meaning an eighth of the way along.
+	Strike
 )
 
 func (w Wave) String() string {
@@ -47,6 +51,8 @@ func (w Wave) String() string {
 		return "noise"
 	case Pluck:
 		return "pluck"
+	case Strike:
+		return "strike"
 	}
 	return "unknown"
 }
@@ -70,7 +76,7 @@ type Osc struct {
 	Env *Envelope
 
 	FM     FM     // Sine only
-	String String // Pluck only
+	String String // Pluck and Strike only
 }
 
 func (o Osc) level() float64 {
@@ -90,7 +96,7 @@ type FM struct {
 	Sustain float64 // fraction of Index left once Decay has run its course
 }
 
-// String tunes a Pluck oscillator.
+// String tunes a Pluck or Strike oscillator.
 type String struct {
 	// Seconds to fall 60dB at A3. Shorter in the treble, by the square root of pitch,
 	// as on a real string. 0 means 4.

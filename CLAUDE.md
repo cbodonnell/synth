@@ -72,7 +72,17 @@ and per stem, and `Song.Target` makes the songs test hold a song within 1 LU of 
 
 Oscillators are band-limited (PolyBLEP) saw and pulse, triangle, sine with two-operator
 FM, seeded white noise, and `Pluck`, a Karplus-Strong string tuned with an allpass for the
-fractional delay. A string whose pitch moves (slide, sweep, vibrato) switches to a
+fractional delay. `Strike` is the same loop as a piano string. It starts at rest and is
+fed its hammer a sample at a time: a pulse, shorter and more peaked with hardness and
+velocity, cancelled at the strike point, with a fixed soundboard response (`soundboard`,
+resonances below 2 kHz) rung by it after, commuted ahead of the string since both are
+linear. The feed is highpassed below half the fundamental, since the loop would ring at
+its offset. `voice` sets each string's level from the energy its harmonics will ring with
+over the first second, weighted as heard, so the keyboard comes out even. Four
+dispersion allpasses stretch the overtones sharp as a stiff string's are, with the
+fundamental kept in tune, and decay falls more steeply with pitch than a pluck's. It is a
+separate wave rather than fields on `String` so `Pluck` and every bake fingerprint stay
+as they were. A string whose pitch moves (slide, sweep, vibrato) switches to a
 Hermite-interpolated read, which bends smoothly where the allpass would click.
 Envelope curves are exponential but normalized to land exactly on target, so every note
 ends at a true zero, with a 2ms minimum attack and 5ms minimum release against clicks.
@@ -178,7 +188,8 @@ bakes a file per take.
 
 ### Content
 
-`patches` is a starting instrument library; `songs` holds example content:
+`patches` is a starting instrument library (`orchestral.go` holds strings, spiccato,
+horns, timpani, taiko and choir for film scoring); `songs` holds example content:
 
 - `goldenbrown.go`, the Golden Brown intro: harpsichord sound design and irregular metre
   (`Meter.Bars = {3, 3, 3, 4}`).
@@ -222,7 +233,8 @@ bakes a file per take.
   lead singing a 3-3-2 hook, a kalimba ticking that rhythm and doubling the hook at the
   end, a clean guitar into dotted-eighth echoes, a swell pad, a round synth bass, a
   tight kit, and a distant crowd under the intro and the breakdown.
-- `hits.go`, single notes of the `patches` library, for hearing a patch alone.
+- `hits.go`, single notes of the `patches` library, for hearing a patch alone (the
+  pianos play a soft note, a hard one, and a chord).
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),
   in `Platformer()`. The reference for sound effects: layers of transient, body, and
   tail, leveled by a master `Normalize` per tier (UI -12 dB, movement and pickups -10

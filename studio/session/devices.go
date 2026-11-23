@@ -411,7 +411,7 @@ const (
 // PatchGroups are the patch device's groups for the patch at path: each oscillator,
 // unison, the amp envelope, the filter and its envelope, each LFO, the sweep, and its
 // drive and levels. An oscillator shows FM only on a sine and the string only on a
-// pluck, unless they're set.
+// pluck or a strike, unless they're set.
 func PatchGroups(p synth.Patch, path []any) []Group {
 	at := func(steps ...any) []any { return append(slices.Clone(path), steps...) }
 	var out []Group
@@ -421,7 +421,7 @@ func PatchGroups(p synth.Patch, path []any) []Group {
 			f := reflect.TypeFor[synth.Osc]().Field(j)
 			switch {
 			case f.Name == "FM" && o.Wave != synth.Sine && o.FM == (synth.FM{}):
-			case f.Name == "String" && o.Wave != synth.Pluck && o.String == (synth.String{}):
+			case f.Name == "String" && o.Wave != synth.Pluck && o.Wave != synth.Strike && o.String == (synth.String{}):
 			default:
 				fields = append(fields, f.Name)
 			}

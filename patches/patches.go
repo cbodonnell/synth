@@ -126,24 +126,44 @@ func Bass() synth.Patch {
 	}
 }
 
-// GrandPiano is a concert grand played softly: three strings a key, struck near the
-// middle by a felt hammer so the tone is round, with a long bloom and a slow release
-// for notes the sustain pedal holds past their written length.
+// GrandPiano is a concert grand: three strings a key struck by a felt hammer, so
+// velocity sets how bright a note is. Two strings ring loud and die sooner, a third
+// rings quietly on, and their slight detuning beats, which together give a piano's
+// fast early decay and long tail. A short thump is the hammer itself.
 func GrandPiano() synth.Patch {
-	hammer := synth.Envelope{Attack: 0.0005, Decay: 0.012, Release: 0.005}
+	thump := synth.Envelope{Attack: 0.0005, Decay: 0.015, Release: 0.005}
 	return synth.Patch{
 		Name: "grand piano",
 		Oscs: []synth.Osc{
-			{Wave: synth.Pluck, String: synth.String{Decay: 9, Brightness: 0.55, Pick: 0.2}},
-			{Wave: synth.Pluck, Level: 0.8, Cents: 1.8, String: synth.String{Decay: 8, Brightness: 0.5, Pick: 0.22}},
-			{Wave: synth.Pluck, Level: 0.6, Cents: -1.4, String: synth.String{Decay: 10, Brightness: 0.45, Pick: 0.18}},
-			{Wave: synth.Sine, Level: 0.2, Env: &synth.Envelope{Attack: 0.002, Decay: 2.5, Release: 0.3}},
-			{Wave: synth.Noise, Level: 0.04, Env: &hammer},
+			{Wave: synth.Strike, String: synth.String{Decay: 12, Brightness: 0.75}},
+			{Wave: synth.Strike, Level: 0.6, Cents: 0.8, String: synth.String{Decay: 8, Brightness: 0.75}},
+			{Wave: synth.Strike, Level: 0.4, Cents: -0.5, String: synth.String{Decay: 30, Brightness: 0.6}},
+			{Wave: synth.Noise, Level: 0.03, Env: &thump},
 		},
-		Amp:      synth.Envelope{Attack: 0.001, Release: 0.6},
-		Filter:   synth.Filter{Cutoff: 2600, KeyTrack: 0.6, Velocity: 1.5},
+		Amp:      synth.Envelope{Attack: 0.001, Release: 0.5},
+		Filter:   synth.Filter{Cutoff: 4500, KeyTrack: 0.5, Velocity: 0.6},
 		Velocity: 0.75,
-		Gain:     0.16,
+		Gain:     0.04,
+	}
+}
+
+// FeltPiano is an upright with felt laid between hammers and strings: the same three
+// strings as GrandPiano struck by a much softer hammer, darker, with more of the felt's
+// thump.
+func FeltPiano() synth.Patch {
+	felt := synth.Envelope{Attack: 0.001, Decay: 0.04, Release: 0.01}
+	return synth.Patch{
+		Name: "felt piano",
+		Oscs: []synth.Osc{
+			{Wave: synth.Strike, String: synth.String{Decay: 11, Brightness: 0.15}},
+			{Wave: synth.Strike, Level: 0.6, Cents: 0.8, String: synth.String{Decay: 7, Brightness: 0.15}},
+			{Wave: synth.Strike, Level: 0.35, Cents: -0.5, String: synth.String{Decay: 26, Brightness: 0.1}},
+			{Wave: synth.Noise, Level: 0.06, Env: &felt},
+		},
+		Amp:      synth.Envelope{Attack: 0.001, Release: 0.4},
+		Filter:   synth.Filter{Cutoff: 1600, KeyTrack: 0.4, Velocity: 0.6},
+		Velocity: 0.8,
+		Gain:     0.065,
 	}
 }
 
