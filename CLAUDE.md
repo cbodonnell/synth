@@ -233,6 +233,12 @@ horns, timpani, taiko and choir for film scoring); `songs` holds example content
   lead singing a 3-3-2 hook, a kalimba ticking that rhythm and doubling the hook at the
   end, a clean guitar into dotted-eighth echoes, a swell pad, a round synth bass, a
   tight kit, and a distant crowd under the intro and the breakdown.
+- `elegy.go`, "Elegy": solo grand piano in D-flat at 63, written as one pianist's
+  hands (tune, right-hand inner voices, pedalled left hand, low octaves). One
+  eight-bar tune over a bass walking down the scale, played four times, each fuller,
+  around a middle section in Bb minor: a run into a deceptive cadence on A major (bVI)
+  with A0 in the bass is the peak, and the coda is the opening an octave up, soft.
+  It plays once, no loop.
 - `hits.go`, single notes of the `patches` library, for hearing a patch alone (the
   pianos play a soft note, a hard one, and a chord).
 - `platformer.go`, a side-scrolling MMO's effects (jump, hit, meso, level up, UI, ...),

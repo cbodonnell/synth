@@ -11,7 +11,7 @@ import (
 func Arrangements() []synth.Arrangement {
 	return slices.Concat([]synth.Arrangement{
 		goldenBrown, amberHours, playaSunrise, lavaLamp, brighterDays, smokeSignal, woodlands,
-		interstellar, longLight, daybreak, goldenHour,
+		interstellar, longLight, daybreak, goldenHour, elegy,
 	}, Hits(), Platformer())
 }
 
