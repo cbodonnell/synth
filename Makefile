@@ -1,4 +1,4 @@
-.PHONY: test vet list play score export edit demo
+.PHONY: test vet list patches play score export edit demo
 
 test:
 	go test ./...
@@ -8,6 +8,9 @@ vet:
 
 list:
 	go run ./cmd/synth -list
+
+patches:
+	@go doc -all ./patches
 
 # Render a song or sound to a wav, print its envelope, and play it.
 # `make play ID=goldenbrown LOOPS=3 DUMP=1` writes three passes without playing them.
